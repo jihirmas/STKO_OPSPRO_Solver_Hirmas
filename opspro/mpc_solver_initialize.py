@@ -96,6 +96,7 @@ def _register_plugin_commands():
 	App.registerCommand(opspro.Materials.SteelMaterialCommandNew())
 	App.registerCommand(opspro.Materials.ConcreteMaterialCommandNew())
 	App.registerCommand(opspro.Materials.SoilMaterialCommandNew())
+	App.registerCommand(opspro.Materials.ASDPlasticMaterialCommandNew())
 	App.registerCommand(opspro.Materials.MaterialCommandDelete())
 	App.registerCommand(opspro.Materials.MaterialCommandClone())
 	App.registerCommand(opspro.Materials.MaterialCommandEdit())
@@ -183,6 +184,10 @@ def _register_actions():
 			(
 				'Soil', opspro.Materials.SoilMaterialCommandNew.COMMAND_NAME,
 				pkgutil.get_data('opspro', 'assets/images/material_soil_add.ico'), True
+			),
+			(
+				'ASD Plastic', opspro.Materials.ASDPlasticMaterialCommandNew.COMMAND_NAME,
+				pkgutil.get_data('opspro', 'assets/images/material_asd_plastic_add.ico'), True
 			),
 		],
 		'Materials'

@@ -7,6 +7,9 @@ from .concrete_material_command_new import ConcreteMaterialCommandNew
 from .soil_material import SoilMaterial
 from .soil_material_dialog import SoilMaterialDialog
 from .soil_material_command_new import SoilMaterialCommandNew
+from .asd_plastic_material import ASDPlasticMaterial
+from .asd_plastic_material_dialog import ASDPlasticMaterialDialog
+from .asd_plastic_material_command_new import ASDPlasticMaterialCommandNew
 from .material_command_new import MaterialCommandNew
 from .material_command_edit import MaterialCommandEdit
 from .steel_material_command_new import SteelMaterialCommandNew
@@ -28,6 +31,9 @@ __all__ = [
     'SoilMaterial',
     'SoilMaterialDialog',
     'SoilMaterialCommandNew',
+    'ASDPlasticMaterial',
+    'ASDPlasticMaterialDialog',
+    'ASDPlasticMaterialCommandNew',
     'MaterialCommandNew',
     'MaterialCommandEdit',
     'SteelMaterialCommandNew',
