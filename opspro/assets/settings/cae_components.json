@@ -1,0 +1,13 @@
+{
+	"componentGroups": {
+		"groups": [
+			{
+				"id": "001-materials",
+				"displayName": "Materials",
+				"description": "Constitutive models for structural analysis",
+				"icon": "assets/images/materials.ico",
+				"assignmentFlags": ["All"]
+			}
+		]
+	}
+}
