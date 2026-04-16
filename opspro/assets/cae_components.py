@@ -85,12 +85,14 @@ class CAEComponentGroups:
                 'SteelMaterial':    'assets/images/material_steel.ico',
                 'ConcreteMaterial': 'assets/images/material_concrete.ico',
                 'SoilMaterial':     'assets/images/material_soil.ico',
+                'SandMaterial':     'assets/images/material_soil.ico',
             },
             assignmentFlags = MpcPluginCaeComponentAssignmentFlags.All,
             collectionCommands = [
                 ('Add Steel...', opspro.Materials.SteelMaterialCommandNew.COMMAND_NAME),
                 ('Add Concrete...', opspro.Materials.ConcreteMaterialCommandNew.COMMAND_NAME),
                 ('Add Soil...', opspro.Materials.SoilMaterialCommandNew.COMMAND_NAME),
+                ('Add Sand...', opspro.Materials.SandMaterialCommandNew.COMMAND_NAME),
             ],
             componentCommands = [
                 ('Remove', opspro.Materials.MaterialCommandDelete.COMMAND_NAME),

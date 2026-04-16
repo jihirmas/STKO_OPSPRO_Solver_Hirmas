@@ -96,6 +96,7 @@ def _register_plugin_commands():
 	App.registerCommand(opspro.Materials.SteelMaterialCommandNew())
 	App.registerCommand(opspro.Materials.ConcreteMaterialCommandNew())
 	App.registerCommand(opspro.Materials.SoilMaterialCommandNew())
+	App.registerCommand(opspro.Materials.SandMaterialCommandNew())
 	App.registerCommand(opspro.Materials.MaterialCommandDelete())
 	App.registerCommand(opspro.Materials.MaterialCommandClone())
 	App.registerCommand(opspro.Materials.MaterialCommandEdit())
