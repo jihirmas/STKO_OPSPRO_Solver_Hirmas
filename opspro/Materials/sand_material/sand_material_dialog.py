@@ -1,3 +1,5 @@
+import pkgutil
+
 from PySide2 import QtCore, QtGui, QtWidgets
 
 from opspro.parameters.ParameterManager import ParameterManager
@@ -15,9 +17,6 @@ def _hline():
 class SandMaterialDialog(QtWidgets.QDialog):
     """
     QDialog for creating a new SandMaterial or editing an existing one.
-
-    The dialog dynamically shows/hides parameters based on the material type selector
-    (Mohr-Coulomb, Drucker-Prager, Von-Mises).
 
     Usage
     -----
@@ -37,11 +36,12 @@ class SandMaterialDialog(QtWidgets.QDialog):
     def __init__(self, material: SandMaterial = None, parent=None, is_new=False):
         super().__init__(parent)
 
-        self._material = material
-        self._is_new = is_new
+        self._material       = material
+        self._is_new         = is_new
         self._visual_material = None
         self._setup_ui()
         self._populate(material)
+        self._on_material_type_changed(self._combo_type.currentText())
 
     # ------------------------------------------------------------------
     # UI construction
@@ -50,42 +50,42 @@ class SandMaterialDialog(QtWidgets.QDialog):
     def _setup_ui(self):
         title = 'New Sand Material' if self._is_new else 'Edit Sand Material'
         self.setWindowTitle(title)
-        self.setMinimumWidth(600)
+        self.setMinimumWidth(750)
+        self.setMinimumHeight(650)
 
         ureg = ParameterManager._unit_registry
-        # Default values
-        _default_E = 50e6 * ureg.Pa
-        _default_G = 20e6 * ureg.Pa
-        _default_K = 40e6 * ureg.Pa
-        _default_nu = 0.3 * ureg.dimensionless
+        _default_E           = 50e6    * ureg.Pa
+        _default_G           = 20e6    * ureg.Pa
+        _default_K           = 40e6    * ureg.Pa
+        _default_nu          = 0.3     * ureg.dimensionless
         _default_gamma_unsat = 16000.0 * ureg('kg/m^3')
-        _default_gamma_sat = 18000.0 * ureg('kg/m^3')
-        _default_e_init = 0.8 * ureg.dimensionless
-        _default_n_init = 0.444 * ureg.dimensionless
-        _default_phi = 30.0 * ureg.degree
-        _default_c = 10e3 * ureg.Pa
-        _default_psi = 0.0 * ureg.degree
-        _default_sigma_y = 100e3 * ureg.Pa
-        _default_E_ref = 50e6 * ureg.Pa
-        _default_P_ref = 100e3 * ureg.Pa
-        _default_n_exp = 0.5 * ureg.dimensionless
+        _default_gamma_sat   = 18000.0 * ureg('kg/m^3')
+        _default_e_init      = 0.8     * ureg.dimensionless
+        _default_n_init      = 0.444   * ureg.dimensionless
+        _default_phi         = 30.0    * ureg.degree
+        _default_c           = 10e3    * ureg.Pa
+        _default_psi         = 0.0     * ureg.degree
+        _default_sigma_y     = 100e3   * ureg.Pa
+        _default_E_ref       = 50e6    * ureg.Pa
+        _default_P_ref       = 100e3   * ureg.Pa
+        _default_n_exp       = 0.5     * ureg.dimensionless
 
         # 3-column grid: label | input | description
         grid = QtWidgets.QGridLayout()
         grid.setSpacing(8)
-        grid.setColumnMinimumWidth(0, 120)
+        grid.setColumnMinimumWidth(0, 100)
         grid.setColumnStretch(1, 0)
         grid.setColumnStretch(2, 1)
 
         def _lbl(text):
-            lbl = QtWidgets.QLabel(text)
-            lbl.setAlignment(QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter)
-            return lbl
+            l = QtWidgets.QLabel(text)
+            l.setAlignment(QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter)
+            return l
 
         def _desc(text):
-            lbl = QtWidgets.QLabel(text)
-            lbl.setStyleSheet("color: gray; font-size: 10px;")
-            return lbl
+            l = QtWidgets.QLabel(text)
+            l.setStyleSheet('color: gray; font-style: italic;')
+            return l
 
         row = 0
 
@@ -95,9 +95,12 @@ class SandMaterialDialog(QtWidgets.QDialog):
         self._btn_shader = QtWidgets.QPushButton('Shader\u2026')
         self._btn_shader.setToolTip('Edit visual shader\u2026')
         try:
-            from PyMpc import FxMaterialEditor
+            icon_data = pkgutil.get_data('opspro', 'assets/images/shader.ico')
+            pixmap = QtGui.QPixmap()
+            pixmap.loadFromData(icon_data)
+            self._btn_shader.setIcon(QtGui.QIcon(pixmap))
         except Exception:
-            self._btn_shader.setEnabled(False)
+            pass
         self._btn_shader.clicked.connect(self._on_edit_shader)
         name_layout = QtWidgets.QHBoxLayout()
         name_layout.setContentsMargins(0, 0, 0, 0)
@@ -137,10 +140,11 @@ class SandMaterialDialog(QtWidgets.QDialog):
         grid.addWidget(_desc("Poisson's ratio"), row, 2)
         row += 1
 
-        # ---- Unit weight and void parameters ----
+        # ---- Unit weight and void ratio section ----
+        # ---- Unit weight section ----
         grid.addWidget(_hline(), row, 0, 1, 3)
         row += 1
-        grid.addWidget(QtWidgets.QLabel('<b>Unit weight & void ratio</b>'), row, 0, 1, 3)
+        grid.addWidget(QtWidgets.QLabel('<b>Unit weight</b>'), row, 0, 1, 3)
         row += 1
 
         self._edit_gamma_unsat = ExpressionLineEdit(default_value=_default_gamma_unsat)
@@ -155,6 +159,12 @@ class SandMaterialDialog(QtWidgets.QDialog):
         grid.addWidget(_desc('Saturated unit weight'), row, 2)
         row += 1
 
+        # ---- Void ratio section ----
+        grid.addWidget(_hline(), row, 0, 1, 3)
+        row += 1
+        grid.addWidget(QtWidgets.QLabel('<b>Void ratio</b>'), row, 0, 1, 3)
+        row += 1
+
         self._edit_e_init = ExpressionLineEdit(default_value=_default_e_init)
         grid.addWidget(_lbl('e_init:'), row, 0)
         grid.addWidget(self._edit_e_init, row, 1)
@@ -167,43 +177,93 @@ class SandMaterialDialog(QtWidgets.QDialog):
         grid.addWidget(_desc('Initial porosity'), row, 2)
         row += 1
 
-        # ---- Material Type selector ----
+        # ---- Material type section ----
         grid.addWidget(_hline(), row, 0, 1, 3)
         row += 1
-        grid.addWidget(QtWidgets.QLabel('<b>Constitutive model</b>'), row, 0, 1, 3)
+        grid.addWidget(QtWidgets.QLabel('<b>Non-linear properties</b>'), row, 0, 1, 3)
         row += 1
 
         self._combo_type = QtWidgets.QComboBox()
         self._combo_type.addItems(SandMaterial.MATERIAL_TYPES)
         self._combo_type.currentTextChanged.connect(self._on_material_type_changed)
         grid.addWidget(_lbl('Type:'), row, 0)
-        grid.addWidget(self._combo_type, row, 1, 1, 2)
+        grid.addWidget(self._combo_type, row, 1)
+        grid.addWidget(_desc('Presets'), row, 2)
         row += 1
 
-        # ---- Drucker-Prager calibration mode (initially hidden) ----
+        # ---- Drucker-Prager calibration mode ----
         self._lbl_calibration = _lbl('Calibration:')
         self._combo_calibration = QtWidgets.QComboBox()
         self._combo_calibration.addItems(SandMaterial.CALIBRATION_MODES)
         self._desc_calibration = _desc('Calibration mode for Drucker-Prager')
         grid.addWidget(self._lbl_calibration, row, 0)
-        grid.addWidget(self._combo_calibration, row, 1, 1, 2)
-        self._row_calibration = row
+        grid.addWidget(self._combo_calibration, row, 1)
+        grid.addWidget(self._desc_calibration, row, 2)
         row += 1
 
-        # ---- Strength parameters (shown for Mohr-Coulomb, Drucker-Prager, hidden for Von-Mises) ----
+        # ---- Constitutive model images (one per type, hidden/shown dynamically) ----
+        # Mohr-Coulomb image
+        self._img_mohr_coulomb = QtWidgets.QLabel()
+        self._img_mohr_coulomb.setAlignment(QtCore.Qt.AlignHCenter | QtCore.Qt.AlignVCenter)
+        self._img_mohr_coulomb.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred)
+        self._img_mohr_coulomb.setStyleSheet('background: white;')
+        try:
+            image_data = pkgutil.get_data('opspro', 'assets/images/sand_material_mohr_coulomb.png')
+            pixmap = QtGui.QPixmap()
+            pixmap.loadFromData(image_data)
+            self._img_mohr_coulomb.setPixmap(pixmap)
+        except Exception:
+            pass
+        grid.addWidget(self._img_mohr_coulomb, row, 0, 1, 3)
+        row += 1
+
+        # Drucker-Prager image
+        self._img_drucker_prager = QtWidgets.QLabel()
+        self._img_drucker_prager.setAlignment(QtCore.Qt.AlignHCenter | QtCore.Qt.AlignVCenter)
+        self._img_drucker_prager.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred)
+        self._img_drucker_prager.setStyleSheet('background: white;')
+        try:
+            image_data = pkgutil.get_data('opspro', 'assets/images/sand_material_drucker_prager.png')
+            pixmap = QtGui.QPixmap()
+            pixmap.loadFromData(image_data)
+            self._img_drucker_prager.setPixmap(pixmap)
+        except Exception:
+            pass
+        grid.addWidget(self._img_drucker_prager, row, 0, 1, 3)
+        row += 1
+
+        # Von-Mises image
+        self._img_von_mises = QtWidgets.QLabel()
+        self._img_von_mises.setAlignment(QtCore.Qt.AlignHCenter | QtCore.Qt.AlignVCenter)
+        self._img_von_mises.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred)
+        self._img_von_mises.setStyleSheet('background: white;')
+        try:
+            image_data = pkgutil.get_data('opspro', 'assets/images/sand_material_von_mises.png')
+            pixmap = QtGui.QPixmap()
+            pixmap.loadFromData(image_data)
+            self._img_von_mises.setPixmap(pixmap)
+        except Exception:
+            pass
+        grid.addWidget(self._img_von_mises, row, 0, 1, 3)
+        row += 1
+
+        # Initially hide all images (will be shown by _on_material_type_changed)
+        self._img_mohr_coulomb.setVisible(False)
+        self._img_drucker_prager.setVisible(False)
+        self._img_von_mises.setVisible(False)
+
+        # ---- Strength parameters section ----
         grid.addWidget(_hline(), row, 0, 1, 3)
         row += 1
-        self._lbl_strength_section = QtWidgets.QLabel('<b>Strength parameters</b>')
-        grid.addWidget(self._lbl_strength_section, row, 0, 1, 3)
+        grid.addWidget(QtWidgets.QLabel('<b>Strength parameters</b>'), row, 0, 1, 3)
         row += 1
 
-        self._lbl_phi = _lbl('\u03c6:')  # φ
-        self._edit_phi = ExpressionLineEdit(default_value=_default_phi)
-        self._desc_phi = _desc('Friction angle')
-        grid.addWidget(self._lbl_phi, row, 0)
-        grid.addWidget(self._edit_phi, row, 1)
-        grid.addWidget(self._desc_phi, row, 2)
-        self._row_phi = row
+        self._lbl_sigma_y = _lbl('\u03c3_y:')   # σ_y
+        self._edit_sigma_y = ExpressionLineEdit(default_value=_default_sigma_y)
+        self._desc_sigma_y = _desc('Yield stress (Von-Mises)')
+        grid.addWidget(self._lbl_sigma_y, row, 0)
+        grid.addWidget(self._edit_sigma_y, row, 1)
+        grid.addWidget(self._desc_sigma_y, row, 2)
         row += 1
 
         self._lbl_c = _lbl('c:')
@@ -212,26 +272,22 @@ class SandMaterialDialog(QtWidgets.QDialog):
         grid.addWidget(self._lbl_c, row, 0)
         grid.addWidget(self._edit_c, row, 1)
         grid.addWidget(self._desc_c, row, 2)
-        self._row_c = row
         row += 1
 
-        self._lbl_psi = _lbl('\u03a8:')  # Ψ
+        self._lbl_phi = _lbl('\u03c6:')   # φ
+        self._edit_phi = ExpressionLineEdit(default_value=_default_phi)
+        self._desc_phi = _desc('Friction angle')
+        grid.addWidget(self._lbl_phi, row, 0)
+        grid.addWidget(self._edit_phi, row, 1)
+        grid.addWidget(self._desc_phi, row, 2)
+        row += 1
+
+        self._lbl_psi = _lbl('\u03a8:')   # Ψ
         self._edit_psi = ExpressionLineEdit(default_value=_default_psi)
         self._desc_psi = _desc('Dilatancy angle')
         grid.addWidget(self._lbl_psi, row, 0)
         grid.addWidget(self._edit_psi, row, 1)
         grid.addWidget(self._desc_psi, row, 2)
-        self._row_psi = row
-        row += 1
-
-        # ---- Von-Mises specific: Yield stress (initially hidden) ----
-        self._lbl_sigma_y = _lbl('\u03c3_y:')  # σ_y
-        self._edit_sigma_y = ExpressionLineEdit(default_value=_default_sigma_y)
-        self._desc_sigma_y = _desc('Yield stress (Von-Mises)')
-        grid.addWidget(self._lbl_sigma_y, row, 0)
-        grid.addWidget(self._edit_sigma_y, row, 1)
-        grid.addWidget(self._desc_sigma_y, row, 2)
-        self._row_sigma_y = row
         row += 1
 
         # ---- Nonlinear elasticity section ----
@@ -241,9 +297,10 @@ class SandMaterialDialog(QtWidgets.QDialog):
         row += 1
 
         self._check_nonlinear = QtWidgets.QCheckBox()
+        self._desc_nonlinear = _desc('Enable pressure-dependent elasticity')
         grid.addWidget(_lbl('Enable:'), row, 0)
         grid.addWidget(self._check_nonlinear, row, 1)
-        grid.addWidget(_desc('Enable pressure-dependent elasticity'), row, 2)
+        grid.addWidget(self._desc_nonlinear, row, 2)
         row += 1
 
         self._lbl_E_ref = _lbl('E_ref:')
@@ -252,7 +309,6 @@ class SandMaterialDialog(QtWidgets.QDialog):
         grid.addWidget(self._lbl_E_ref, row, 0)
         grid.addWidget(self._edit_E_ref, row, 1)
         grid.addWidget(self._desc_E_ref, row, 2)
-        self._row_E_ref = row
         row += 1
 
         self._lbl_P_ref = _lbl('P_ref:')
@@ -261,7 +317,6 @@ class SandMaterialDialog(QtWidgets.QDialog):
         grid.addWidget(self._lbl_P_ref, row, 0)
         grid.addWidget(self._edit_P_ref, row, 1)
         grid.addWidget(self._desc_P_ref, row, 2)
-        self._row_P_ref = row
         row += 1
 
         self._lbl_n_exp = _lbl('n:')
@@ -270,242 +325,424 @@ class SandMaterialDialog(QtWidgets.QDialog):
         grid.addWidget(self._lbl_n_exp, row, 0)
         grid.addWidget(self._edit_n_exp, row, 1)
         grid.addWidget(self._desc_n_exp, row, 2)
-        self._row_n_exp = row
         row += 1
 
         self._check_nonlinear.toggled.connect(self._on_nonlinear_toggled)
-
-        # ---- vertical spacer ----
-        grid.setRowStretch(row, 1)
-
-        # ---- Button box ----
-        button_box = QtWidgets.QDialogButtonBox(
-            QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel
-        )
-        button_box.accepted.connect(self._on_accepted)
-        button_box.rejected.connect(self.reject)
-
-        main_layout = QtWidgets.QVBoxLayout()
-        scroll = QtWidgets.QScrollArea()
-        scroll.setWidgetResizable(True)
-        widget = QtWidgets.QWidget()
-        widget.setLayout(grid)
-        scroll.setWidget(widget)
-        main_layout.addWidget(scroll)
-        main_layout.addWidget(button_box)
-        self.setLayout(main_layout)
-
-        # Initialize visibility
-        self._on_material_type_changed(self._combo_type.currentText())
+        self._edit_E_ref.textChanged.connect(self._on_E_ref_changed)
         self._on_nonlinear_toggled(False)
 
+        # ---- vertical spacer -----------------------------------------
+        grid.setRowStretch(row, 1)
+
+        # ---- Button box ----------------------------------------------
+        btn_box = QtWidgets.QDialogButtonBox(
+            QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel,
+            QtCore.Qt.Horizontal
+        )
+        btn_box.accepted.connect(self._on_accepted)
+        btn_box.rejected.connect(self.reject)
+
+        # ---- Main layout with scroll area ----------------------------
+        scroll = QtWidgets.QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll_content = QtWidgets.QWidget()
+        scroll_content.setLayout(grid)
+        scroll.setWidget(scroll_content)
+
+        main_layout = QtWidgets.QVBoxLayout(self)
+        main_layout.addWidget(scroll)
+        main_layout.addSpacing(4)
+        main_layout.addWidget(_hline())
+        main_layout.addWidget(btn_box)
+
     # ------------------------------------------------------------------
-    # Dynamic UI updates
+    # Material type toggle
     # ------------------------------------------------------------------
+
+    def _update_image(self, material_type: str):
+        """Show/hide images based on selected material type."""
+        self._img_mohr_coulomb.setVisible(material_type == 'Mohr-Coulomb')
+        self._img_drucker_prager.setVisible(material_type == 'Drucker-Prager')
+        self._img_von_mises.setVisible(material_type == 'Von-Mises')
 
     def _on_material_type_changed(self, material_type: str):
-        """Show/hide parameters based on material type."""
-        if material_type == 'Mohr-Coulomb':
-            self._lbl_calibration.hide()
-            self._combo_calibration.hide()
-            self._desc_calibration.hide()
-            self._lbl_phi.show()
-            self._edit_phi.show()
-            self._desc_phi.show()
-            self._lbl_c.show()
-            self._edit_c.show()
-            self._desc_c.show()
-            self._lbl_psi.show()
-            self._edit_psi.show()
-            self._desc_psi.show()
-            self._lbl_sigma_y.hide()
-            self._edit_sigma_y.hide()
-            self._desc_sigma_y.hide()
+        try:
+            if material_type == 'Mohr-Coulomb':
+                self._lbl_calibration.setVisible(False)
+                self._combo_calibration.setVisible(False)
+                self._desc_calibration.setVisible(False)
+                self._lbl_phi.setVisible(True)
+                self._edit_phi.setVisible(True)
+                self._desc_phi.setVisible(True)
+                self._lbl_c.setVisible(True)
+                self._edit_c.setVisible(True)
+                self._desc_c.setVisible(True)
+                self._lbl_psi.setVisible(True)
+                self._edit_psi.setVisible(True)
+                self._desc_psi.setVisible(True)
+                self._lbl_sigma_y.setVisible(False)
+                self._edit_sigma_y.setVisible(False)
+                self._desc_sigma_y.setVisible(False)
 
-        elif material_type == 'Drucker-Prager':
-            self._lbl_calibration.show()
-            self._combo_calibration.show()
-            self._desc_calibration.show()
-            self._lbl_phi.show()
-            self._edit_phi.show()
-            self._desc_phi.show()
-            self._lbl_c.show()
-            self._edit_c.show()
-            self._desc_c.show()
-            self._lbl_psi.show()
-            self._edit_psi.show()
-            self._desc_psi.show()
-            self._lbl_sigma_y.hide()
-            self._edit_sigma_y.hide()
-            self._desc_sigma_y.hide()
+            elif material_type == 'Drucker-Prager':
+                self._lbl_calibration.setVisible(True)
+                self._combo_calibration.setVisible(True)
+                self._desc_calibration.setVisible(True)
+                self._lbl_phi.setVisible(True)
+                self._edit_phi.setVisible(True)
+                self._desc_phi.setVisible(True)
+                self._lbl_c.setVisible(True)
+                self._edit_c.setVisible(True)
+                self._desc_c.setVisible(True)
+                self._lbl_psi.setVisible(True)
+                self._edit_psi.setVisible(True)
+                self._desc_psi.setVisible(True)
+                self._lbl_sigma_y.setVisible(False)
+                self._edit_sigma_y.setVisible(False)
+                self._desc_sigma_y.setVisible(False)
 
-        elif material_type == 'Von-Mises':
-            self._lbl_calibration.hide()
-            self._combo_calibration.hide()
-            self._desc_calibration.hide()
-            self._lbl_phi.hide()
-            self._edit_phi.hide()
-            self._desc_phi.hide()
-            self._lbl_c.hide()
-            self._edit_c.hide()
-            self._desc_c.hide()
-            self._lbl_psi.hide()
-            self._edit_psi.hide()
-            self._desc_psi.hide()
-            self._lbl_sigma_y.show()
-            self._edit_sigma_y.show()
-            self._desc_sigma_y.show()
+            elif material_type == 'Von-Mises':
+                self._lbl_calibration.setVisible(False)
+                self._combo_calibration.setVisible(False)
+                self._desc_calibration.setVisible(False)
+                self._lbl_phi.setVisible(False)
+                self._edit_phi.setVisible(False)
+                self._desc_phi.setVisible(False)
+                self._lbl_c.setVisible(True)
+                self._edit_c.setVisible(True)
+                self._desc_c.setVisible(True)
+                self._lbl_psi.setVisible(False)
+                self._edit_psi.setVisible(False)
+                self._desc_psi.setVisible(False)
+                self._lbl_sigma_y.setVisible(True)
+                self._edit_sigma_y.setVisible(True)
+                self._desc_sigma_y.setVisible(True)
+        except Exception as e:
+            pass
+        
+        # Update displayed image based on material type
+        self._update_image(material_type)
+
+    # ------------------------------------------------------------------
+    # Nonlinear elasticity toggle
+    # ------------------------------------------------------------------
 
     def _on_nonlinear_toggled(self, enabled: bool):
-        """Show/hide nonlinear elasticity parameters."""
-        self._lbl_E_ref.setEnabled(enabled)
-        self._edit_E_ref.setEnabled(enabled)
-        self._desc_E_ref.setEnabled(enabled)
-        self._lbl_P_ref.setEnabled(enabled)
-        self._edit_P_ref.setEnabled(enabled)
-        self._desc_P_ref.setEnabled(enabled)
-        self._lbl_n_exp.setEnabled(enabled)
-        self._edit_n_exp.setEnabled(enabled)
-        self._desc_n_exp.setEnabled(enabled)
+        # Enable/disable nonlinear elasticity fields
+        for w in (
+            self._lbl_E_ref, self._edit_E_ref, self._desc_E_ref,
+            self._lbl_P_ref, self._edit_P_ref, self._desc_P_ref,
+            self._lbl_n_exp, self._edit_n_exp, self._desc_n_exp,
+        ):
+            w.setEnabled(enabled)
+        
+        # When enabling nonlinear elasticity, disable E and copy its value to E_ref
+        if enabled:
+            E_val = self._edit_E.value
+            self._edit_E.setEnabled(False)
+            # Copy E value to E_ref
+            
+            self._edit_E_ref.set_quantity(E_val)
+        else:
+            self._edit_E.setEnabled(True)
+
+    # ------------------------------------------------------------------
+    # E_ref synchronization
+    # ------------------------------------------------------------------
+
+    def _on_E_ref_changed(self):
+        """When E_ref changes and nonlinear is enabled, update E display."""
+        if self._check_nonlinear.isChecked():
+            E_ref_val = self._edit_E_ref.value
+            self._edit_E.set_quantity(E_ref_val)
 
     # ------------------------------------------------------------------
     # Population
     # ------------------------------------------------------------------
 
     def _populate(self, material: SandMaterial):
+        """Fill widgets from an existing SandMaterial instance (edit mode)."""
         if material is None:
             return
-
-        self._edit_name.setText(material.name)
-        self._edit_E.setValue(material.E)
-        self._edit_G.setValue(material.G)
-        self._edit_K.setValue(material.K)
-        self._edit_nu.setValue(material.nu)
-        self._edit_gamma_unsat.setValue(material.gamma_unsat)
-        self._edit_gamma_sat.setValue(material.gamma_sat)
-        self._edit_e_init.setValue(material.e_init)
-        self._edit_n_init.setValue(material.n_init)
-        self._combo_type.setCurrentText(material.material_type)
-        self._combo_calibration.setCurrentText(material.calibration_mode)
-        self._edit_phi.setValue(material.phi)
-        self._edit_c.setValue(material.c)
-        self._edit_psi.setValue(material.psi)
-        self._edit_sigma_y.setValue(material.sigma_y)
-        self._check_nonlinear.setChecked(material.nonlinear_elasticity)
-        self._edit_E_ref.setValue(material.E_ref)
-        self._edit_P_ref.setValue(material.P_ref)
-        self._edit_n_exp.setValue(material.n_exp)
-        self._visual_material = material.visual_material
+        try:
+            self._edit_name.setText(str(material.name))
+            self._edit_E.set_quantity(material.E)
+            self._edit_G.set_quantity(material.G)
+            self._edit_K.set_quantity(material.K)
+            self._edit_nu.set_quantity(material.nu)
+            self._edit_gamma_unsat.set_quantity(material.gamma_unsat)
+            self._edit_gamma_sat.set_quantity(material.gamma_sat)
+            self._edit_e_init.set_quantity(material.e_init)
+            self._edit_n_init.set_quantity(material.n_init)
+            self._combo_type.setCurrentText(material.material_type)
+            self._combo_calibration.setCurrentText(material.calibration_mode)
+            self._edit_phi.set_quantity(material.phi)
+            self._edit_c.set_quantity(material.c)
+            self._edit_psi.set_quantity(material.psi)
+            self._edit_sigma_y.set_quantity(material.sigma_y)
+            self._check_nonlinear.setChecked(bool(material.nonlinear_elasticity))
+            self._edit_E_ref.set_quantity(material.E_ref)
+            self._edit_P_ref.set_quantity(material.P_ref)
+            self._edit_n_exp.set_quantity(material.n_exp)
+            self._visual_material = material.visual_material
+        except Exception as e:
+            pass
 
     # ------------------------------------------------------------------
     # Validation & acceptance
     # ------------------------------------------------------------------
 
     def _on_accepted(self):
-        """Validate and accept dialog."""
-        try:
-            name = self._edit_name.text().strip()
-            if not name:
-                QtWidgets.QMessageBox.warning(self, 'Invalid input', 'Please enter a material name')
-                return
+        errors = []
 
-            E = self._edit_E.evaluate()
-            G = self._edit_G.evaluate()
-            K = self._edit_K.evaluate()
-            nu = self._edit_nu.evaluate()
-            gamma_unsat = self._edit_gamma_unsat.evaluate()
-            gamma_sat = self._edit_gamma_sat.evaluate()
-            e_init = self._edit_e_init.evaluate()
-            n_init = self._edit_n_init.evaluate()
-            phi = self._edit_phi.evaluate()
-            c = self._edit_c.evaluate()
-            psi = self._edit_psi.evaluate()
-            sigma_y = self._edit_sigma_y.evaluate()
-            E_ref = self._edit_E_ref.evaluate()
-            P_ref = self._edit_P_ref.evaluate()
-            n_exp = self._edit_n_exp.evaluate()
+        # ---- Name ----
+        name = self._edit_name.text().strip()
+        if not name:
+            errors.append('Name must not be empty.')
 
-            # Basic validation
-            if E <= 0 or G <= 0 or K <= 0:
-                QtWidgets.QMessageBox.warning(self, 'Invalid input', 'Elasticity parameters must be positive')
-                return
+        # ---- E ----
+        E_val = self._edit_E.value
+        E_err = self._edit_E.error
+        if E_err:
+            errors.append(f'E: {E_err}')
+        elif E_val.dimensionality != self._edit_E.expected_dimensionality:
+            errors.append('E must be a stress/pressure quantity (e.g. 50[MPa]).')
+        elif E_val.to_base_units().magnitude <= 0.0:
+            errors.append('E must be positive.')
 
-            if gamma_unsat <= 0 or gamma_sat <= 0:
-                QtWidgets.QMessageBox.warning(self, 'Invalid input', 'Unit weights must be positive')
-                return
+        # ---- G ----
+        G_val = self._edit_G.value
+        G_err = self._edit_G.error
+        if G_err:
+            errors.append(f'G: {G_err}')
+        elif G_val.dimensionality != self._edit_G.expected_dimensionality:
+            errors.append('G must be a stress/pressure quantity (e.g. 20[MPa]).')
+        elif G_val.to_base_units().magnitude <= 0.0:
+            errors.append('G must be positive.')
 
-            if e_init < 0 or n_init <= 0 or n_init >= 1:
-                QtWidgets.QMessageBox.warning(self, 'Invalid input', 'Void ratio and porosity out of valid range')
-                return
+        # ---- K ----
+        K_val = self._edit_K.value
+        K_err = self._edit_K.error
+        if K_err:
+            errors.append(f'K: {K_err}')
+        elif K_val.dimensionality != self._edit_K.expected_dimensionality:
+            errors.append('K must be a stress/pressure quantity (e.g. 40[MPa]).')
+        elif K_val.to_base_units().magnitude <= 0.0:
+            errors.append('K must be positive.')
 
-            self.accept()
+        # ---- nu ----
+        nu_val = self._edit_nu.value
+        nu_err = self._edit_nu.error
+        if nu_err:
+            errors.append(f'\u03bd: {nu_err}')
+        elif nu_val.dimensionality:
+            errors.append('\u03bd must be dimensionless (e.g. 0.3).')
+        else:
+            nu_mag = float(nu_val.magnitude)
+            if not (0.0 <= nu_mag < 0.5):
+                errors.append('\u03bd must be in [0, 0.5).')
 
-        except Exception as e:
-            QtWidgets.QMessageBox.critical(self, 'Error', f'Error in parameters: {str(e)}')
+        # ---- gamma_unsat ----
+        gamma_unsat_val = self._edit_gamma_unsat.value
+        gamma_unsat_err = self._edit_gamma_unsat.error
+        if gamma_unsat_err:
+            errors.append(f'\u03b3_unsat: {gamma_unsat_err}')
+        elif gamma_unsat_val.dimensionality != self._edit_gamma_unsat.expected_dimensionality:
+            errors.append('\u03b3_unsat must be a mass-density quantity (e.g. 1600[kg/m^3]).')
+        elif gamma_unsat_val.to_base_units().magnitude <= 0.0:
+            errors.append('\u03b3_unsat must be positive.')
+
+        # ---- gamma_sat ----
+        gamma_sat_val = self._edit_gamma_sat.value
+        gamma_sat_err = self._edit_gamma_sat.error
+        if gamma_sat_err:
+            errors.append(f'\u03b3_sat: {gamma_sat_err}')
+        elif gamma_sat_val.dimensionality != self._edit_gamma_sat.expected_dimensionality:
+            errors.append('\u03b3_sat must be a mass-density quantity (e.g. 1800[kg/m^3]).')
+        elif gamma_sat_val.to_base_units().magnitude <= 0.0:
+            errors.append('\u03b3_sat must be positive.')
+
+        # ---- e_init ----
+        e_init_val = self._edit_e_init.value
+        e_init_err = self._edit_e_init.error
+        if e_init_err:
+            errors.append(f'e_init: {e_init_err}')
+        elif e_init_val.dimensionality:
+            errors.append('e_init must be dimensionless.')
+        else:
+            e_init_mag = float(e_init_val.magnitude)
+            if e_init_mag < 0.0:
+                errors.append('e_init must be \u2265 0.')
+
+        # ---- n_init ----
+        n_init_val = self._edit_n_init.value
+        n_init_err = self._edit_n_init.error
+        if n_init_err:
+            errors.append(f'n_init: {n_init_err}')
+        elif n_init_val.dimensionality:
+            errors.append('n_init must be dimensionless.')
+        else:
+            n_init_mag = float(n_init_val.magnitude)
+            if not (0.0 < n_init_mag < 1.0):
+                errors.append('n_init must be in (0, 1).')
+
+        # ---- phi ----
+        phi_val = self._edit_phi.value
+        phi_err = self._edit_phi.error
+        if phi_err:
+            errors.append(f'\u03c6: {phi_err}')
+        else:
+            try:
+                phi_deg = float(phi_val.to('degree').magnitude)
+                if not (0.0 <= phi_deg < 90.0):
+                    errors.append('\u03c6 must be in [0\u00b0, 90\u00b0).')
+            except Exception:
+                errors.append('\u03c6 must be an angular quantity (e.g. 30[deg]).')
+
+        # ---- c ----
+        c_val = self._edit_c.value
+        c_err = self._edit_c.error
+        if c_err:
+            errors.append(f'c: {c_err}')
+        elif c_val.dimensionality != self._edit_c.expected_dimensionality:
+            errors.append('c must be a stress/pressure quantity (e.g. 10[kPa]).')
+        elif c_val.to_base_units().magnitude < 0.0:
+            errors.append('c (cohesion) must be \u2265 0.')
+
+        # ---- psi ----
+        psi_val = self._edit_psi.value
+        psi_err = self._edit_psi.error
+        if psi_err:
+            errors.append(f'\u03a8: {psi_err}')
+        else:
+            try:
+                psi_deg = float(psi_val.to('degree').magnitude)
+                if not (0.0 <= psi_deg < 90.0):
+                    errors.append('\u03a8 must be in [0\u00b0, 90\u00b0).')
+            except Exception:
+                errors.append('\u03a8 must be an angular quantity (e.g. 0[deg]).')
+
+        # ---- sigma_y ----
+        sigma_y_val = self._edit_sigma_y.value
+        sigma_y_err = self._edit_sigma_y.error
+        if sigma_y_err:
+            errors.append(f'\u03c3_y: {sigma_y_err}')
+        elif sigma_y_val.dimensionality != self._edit_sigma_y.expected_dimensionality:
+            errors.append('\u03c3_y must be a stress/pressure quantity (e.g. 100[kPa]).')
+        elif sigma_y_val.to_base_units().magnitude <= 0.0:
+            errors.append('\u03c3_y must be positive.')
+
+        # ---- Nonlinear elasticity fields (if enabled) ----
+        nonlinear = self._check_nonlinear.isChecked()
+        if nonlinear:
+            # ---- E_ref ----
+            E_ref_val = self._edit_E_ref.value
+            E_ref_err = self._edit_E_ref.error
+            if E_ref_err:
+                errors.append(f'E_ref: {E_ref_err}')
+            elif E_ref_val.dimensionality != self._edit_E_ref.expected_dimensionality:
+                errors.append('E_ref must be a stress/pressure quantity (e.g. 50[MPa]).')
+            elif E_ref_val.to_base_units().magnitude <= 0.0:
+                errors.append('E_ref must be positive.')
+
+            # ---- P_ref ----
+            P_ref_val = self._edit_P_ref.value
+            P_ref_err = self._edit_P_ref.error
+            if P_ref_err:
+                errors.append(f'P_ref: {P_ref_err}')
+            elif P_ref_val.dimensionality != self._edit_P_ref.expected_dimensionality:
+                errors.append('P_ref must be a stress/pressure quantity (e.g. 100[kPa]).')
+            elif P_ref_val.to_base_units().magnitude <= 0.0:
+                errors.append('P_ref must be positive.')
+
+            # ---- n_exp ----
+            n_exp_val = self._edit_n_exp.value
+            n_exp_err = self._edit_n_exp.error
+            if n_exp_err:
+                errors.append(f'n: {n_exp_err}')
+            elif n_exp_val.dimensionality:
+                errors.append('n must be dimensionless.')
+            else:
+                n_exp_mag = float(n_exp_val.magnitude)
+                if n_exp_mag <= 0.0:
+                    errors.append('n must be positive.')
+        else:
+            E_ref_val = self._edit_E_ref.value
+            P_ref_val = self._edit_P_ref.value
+            n_exp_val = self._edit_n_exp.value
+
+        if errors:
+            QtWidgets.QMessageBox.warning(self, 'Invalid input', '\n'.join(errors))
+            return
+
+        self._validated_data = {
+            'name':                name,
+            'E':                   E_val,
+            'G':                   G_val,
+            'K':                   K_val,
+            'nu':                  nu_val,
+            'gamma_unsat':         gamma_unsat_val,
+            'gamma_sat':           gamma_sat_val,
+            'e_init':              e_init_val,
+            'n_init':              n_init_val,
+            'material_type':       self._combo_type.currentText(),
+            'calibration_mode':    self._combo_calibration.currentText(),
+            'phi':                 phi_val,
+            'c':                   c_val,
+            'psi':                 psi_val,
+            'sigma_y':             sigma_y_val,
+            'nonlinear_elasticity':nonlinear,
+            'E_ref':               E_ref_val,
+            'P_ref':               P_ref_val,
+            'n_exp':               n_exp_val,
+            'visual_material':     self._visual_material,
+        }
+        self.accept()
 
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
 
     def data(self):
-        """Return a dict of all field values (for create mode)."""
-        return {
-            'name': self._edit_name.text().strip(),
-            'E': self._edit_E.evaluate(),
-            'G': self._edit_G.evaluate(),
-            'K': self._edit_K.evaluate(),
-            'nu': self._edit_nu.evaluate(),
-            'gamma_unsat': self._edit_gamma_unsat.evaluate(),
-            'gamma_sat': self._edit_gamma_sat.evaluate(),
-            'e_init': self._edit_e_init.evaluate(),
-            'n_init': self._edit_n_init.evaluate(),
-            'material_type': self._combo_type.currentText(),
-            'calibration_mode': self._combo_calibration.currentText(),
-            'phi': self._edit_phi.evaluate(),
-            'c': self._edit_c.evaluate(),
-            'psi': self._edit_psi.evaluate(),
-            'sigma_y': self._edit_sigma_y.evaluate(),
-            'nonlinear_elasticity': self._check_nonlinear.isChecked(),
-            'E_ref': self._edit_E_ref.evaluate(),
-            'P_ref': self._edit_P_ref.evaluate(),
-            'n_exp': self._edit_n_exp.evaluate(),
-            'visual_material': self._visual_material,
-        }
+        """
+        Return the validated input as a plain dict.
+
+        Call this only after the dialog has been accepted.
+        """
+        return getattr(self, '_validated_data', {})
 
     def apply_to(self, material: SandMaterial):
-        """Apply dialog values to an existing material (for edit mode)."""
-        material.name = self._edit_name.text().strip()
-        material.E = self._edit_E.evaluate()
-        material.G = self._edit_G.evaluate()
-        material.K = self._edit_K.evaluate()
-        material.nu = self._edit_nu.evaluate()
-        material.gamma_unsat = self._edit_gamma_unsat.evaluate()
-        material.gamma_sat = self._edit_gamma_sat.evaluate()
-        material.e_init = self._edit_e_init.evaluate()
-        material.n_init = self._edit_n_init.evaluate()
-        material.material_type = self._combo_type.currentText()
-        material.calibration_mode = self._combo_calibration.currentText()
-        material.phi = self._edit_phi.evaluate()
-        material.c = self._edit_c.evaluate()
-        material.psi = self._edit_psi.evaluate()
-        material.sigma_y = self._edit_sigma_y.evaluate()
-        material.nonlinear_elasticity = self._check_nonlinear.isChecked()
-        material.E_ref = self._edit_E_ref.evaluate()
-        material.P_ref = self._edit_P_ref.evaluate()
-        material.n_exp = self._edit_n_exp.evaluate()
-        if self._visual_material is not None:
-            material.visual_material = self._visual_material
+        """Write the validated data directly onto *material*."""
+        d = self.data()
+        if not d:
+            return
+        material.name                = d['name']
+        material.E                   = d['E']
+        material.G                   = d['G']
+        material.K                   = d['K']
+        material.nu                  = d['nu']
+        material.gamma_unsat         = d['gamma_unsat']
+        material.gamma_sat           = d['gamma_sat']
+        material.e_init              = d['e_init']
+        material.n_init              = d['n_init']
+        material.material_type       = d['material_type']
+        material.calibration_mode    = d['calibration_mode']
+        material.phi                 = d['phi']
+        material.c                   = d['c']
+        material.psi                 = d['psi']
+        material.sigma_y             = d['sigma_y']
+        material.nonlinear_elasticity= d['nonlinear_elasticity']
+        material.E_ref               = d['E_ref']
+        material.P_ref               = d['P_ref']
+        material.n_exp               = d['n_exp']
+        material.visual_material     = d.get('visual_material', None)
 
     # ------------------------------------------------------------------
     # Shader editor
     # ------------------------------------------------------------------
 
     def _on_edit_shader(self):
-        """Open shader editor dialog."""
-        try:
-            from PyMpc import FxMaterialEditor
-            dlg = FxMaterialEditor(self._visual_material, self)
-            if dlg.exec():
-                self._visual_material = dlg.getMaterial()
-        except Exception as e:
-            QtWidgets.QMessageBox.warning(self, 'Error', f'Cannot open shader editor: {str(e)}')
+        from opspro.utils.fx_material_utils import edit_fx_material
+        result = edit_fx_material(self._visual_material)
+        if result is not None:
+            self._visual_material = result

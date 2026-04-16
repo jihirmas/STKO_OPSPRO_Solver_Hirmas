@@ -10,26 +10,29 @@ def _register_cae_components(doc):
 	from opspro.assets.cae_components import CAEComponentGroups
 	print('   Registering CAE Components...')
 	for group in CAEComponentGroups.groups:
-		icon_data = pkgutil.get_data('opspro', group.icon)
-		class_icon_map = {}
-		for class_name, icon_path in group.classIconMap.items():
-			data = pkgutil.get_data('opspro', icon_path)
-			if data is not None:
-				class_icon_map[class_name] = data
-		doc.pluginCaeComponents.registerGroup(
-			group.id, 
-			group.displayName, 
-			group.description, 
-			icon_data,
-			group.assignmentFlags,
-			group.collectionCommands,
-			group.componentCommands,
-			group.preferredComponentCommand,
-			class_icon_map,
-			group.hidden,
-			group.assignCommand,
-			group.unassignCommand
-		)
+		try:
+			icon_data = pkgutil.get_data('opspro', group.icon)
+			class_icon_map = {}
+			for class_name, icon_path in group.classIconMap.items():
+				data = pkgutil.get_data('opspro', icon_path)
+				if data is not None:
+					class_icon_map[class_name] = data
+			doc.pluginCaeComponents.registerGroup(
+				group.id, 
+				group.displayName, 
+				group.description, 
+				icon_data,
+				group.assignmentFlags,
+				group.collectionCommands,
+				group.componentCommands,
+				group.preferredComponentCommand,
+				class_icon_map,
+				group.hidden,
+				group.assignCommand,
+				group.unassignCommand
+			)
+		except Exception as e:
+			print(f'   ERROR registering CAE component group {group.id}: {e}')
 
 def _unregister_builtin_commands():
 	# Unregister some built-in commands that we don't want in our solver's UI.
@@ -76,65 +79,109 @@ def _register_plugin_commands():
 	# Register custom commands for our solver.
 	# This is where you would add any additional commands that your solver needs.
 	print('   Registering custom commands...')
-	import opspro.Settings
-	App.registerCommand(opspro.Settings.DocumentSettingsCommandEdit())
-	import opspro.UserNotes
-	App.registerCommand(opspro.UserNotes.UserNoteCommandNew())
-	App.registerCommand(opspro.UserNotes.UserNoteCommandEdit())
-	App.registerCommand(opspro.UserNotes.UserNoteCommandDelete())
-	import opspro.utils
-	App.registerCommand(opspro.utils.AssignmentRegistryCommandShow())
-	import opspro.View
-	App.registerCommand(opspro.View.ViewGetCameraState())
-	App.registerCommand(opspro.View.ViewFitAll())
-	App.registerCommand(opspro.View.ViewSetViewPoint())
-	App.registerCommand(opspro.View.ViewSetProjection())
-	App.registerCommand(opspro.View.ViewApplyRotation())
-	App.registerCommand(opspro.View.ViewApplyZoom())
-	App.registerCommand(opspro.View.ViewGrabScreenShot())
-	import opspro.Materials
-	App.registerCommand(opspro.Materials.SteelMaterialCommandNew())
-	App.registerCommand(opspro.Materials.ConcreteMaterialCommandNew())
-	App.registerCommand(opspro.Materials.SoilMaterialCommandNew())
-	App.registerCommand(opspro.Materials.SandMaterialCommandNew())
-	App.registerCommand(opspro.Materials.MaterialCommandDelete())
-	App.registerCommand(opspro.Materials.MaterialCommandClone())
-	App.registerCommand(opspro.Materials.MaterialCommandEdit())
-	App.registerCommand(opspro.Materials.MaterialCommandAssign())
-	App.registerCommand(opspro.Materials.MaterialCommandUnassign())
-	App.registerCommand(opspro.Materials.MaterialCommandListPresets())
-	App.registerCommand(opspro.Materials.MaterialCommandListAssignments())
-	import opspro.Sections
-	App.registerCommand(opspro.Sections.BeamSectionCommandNew())
-	App.registerCommand(opspro.Sections.BeamSectionCommandEdit())
-	App.registerCommand(opspro.Sections.BeamSectionCommandDelete())
-	App.registerCommand(opspro.Sections.BeamSectionCommandClone())
-	App.registerCommand(opspro.Sections.BeamSectionCommandAssign())
-	App.registerCommand(opspro.Sections.BeamSectionCommandUnassign())
-	App.registerCommand(opspro.Sections.SectionCommandListShapes())
-	App.registerCommand(opspro.Sections.SectionCommandListPresets())
-	import opspro.Hinges
-	App.registerCommand(opspro.Hinges.BeamEndReleaseCommandNew())
-	App.registerCommand(opspro.Hinges.BeamRotationalHingeCommandNew())
-	App.registerCommand(opspro.Hinges.BeamShearHingeCommandNew())
-	App.registerCommand(opspro.Hinges.BeamHingeCommandEdit())
-	App.registerCommand(opspro.Hinges.BeamHingeCommandDelete())
-	App.registerCommand(opspro.Hinges.BeamHingeCommandClone())
-	App.registerCommand(opspro.Hinges.BeamHingeCommandAssign())
-	App.registerCommand(opspro.Hinges.BeamHingeCommandUnassign())
+	try:
+		import opspro.Settings
+		App.registerCommand(opspro.Settings.DocumentSettingsCommandEdit())
+	except Exception as e:
+		print(f'   ERROR registering DocumentSettingsCommandEdit: {e}')
+	try:
+		import opspro.UserNotes
+		App.registerCommand(opspro.UserNotes.UserNoteCommandNew())
+		App.registerCommand(opspro.UserNotes.UserNoteCommandEdit())
+		App.registerCommand(opspro.UserNotes.UserNoteCommandDelete())
+	except Exception as e:
+		print(f'   ERROR registering UserNote commands: {e}')
+	try:
+		import opspro.utils
+		App.registerCommand(opspro.utils.AssignmentRegistryCommandShow())
+	except Exception as e:
+		print(f'   ERROR registering AssignmentRegistryCommandShow: {e}')
+	try:
+		import opspro.View
+		App.registerCommand(opspro.View.ViewGetCameraState())
+		App.registerCommand(opspro.View.ViewFitAll())
+		App.registerCommand(opspro.View.ViewSetViewPoint())
+		App.registerCommand(opspro.View.ViewSetProjection())
+		App.registerCommand(opspro.View.ViewApplyRotation())
+		App.registerCommand(opspro.View.ViewApplyZoom())
+		App.registerCommand(opspro.View.ViewGrabScreenShot())
+	except Exception as e:
+		print(f'   ERROR registering View commands: {e}')
+	try:
+		import opspro.Materials
+		App.registerCommand(opspro.Materials.SteelMaterialCommandNew())
+	except Exception as e:
+		print(f'   ERROR registering SteelMaterialCommandNew: {e}')
+	try:
+		import opspro.Materials
+		App.registerCommand(opspro.Materials.ConcreteMaterialCommandNew())
+	except Exception as e:
+		print(f'   ERROR registering ConcreteMaterialCommandNew: {e}')
+	try:
+		import opspro.Materials
+		App.registerCommand(opspro.Materials.SoilMaterialCommandNew())
+	except Exception as e:
+		print(f'   ERROR registering SoilMaterialCommandNew: {e}')
+	try:
+		import opspro.Materials
+		App.registerCommand(opspro.Materials.SandMaterialCommandNew())
+	except Exception as e:
+		print(f'   ERROR registering SandMaterialCommandNew: {e}')
+	try:
+		import opspro.Materials
+	except Exception as e:
+		print(f'   ERROR registering ASDPlasticMaterialCommandNew: {e}')
+	try:
+		import opspro.Materials
+		App.registerCommand(opspro.Materials.MaterialCommandDelete())
+		App.registerCommand(opspro.Materials.MaterialCommandClone())
+		App.registerCommand(opspro.Materials.MaterialCommandEdit())
+		App.registerCommand(opspro.Materials.MaterialCommandAssign())
+		App.registerCommand(opspro.Materials.MaterialCommandUnassign())
+		App.registerCommand(opspro.Materials.MaterialCommandListPresets())
+		App.registerCommand(opspro.Materials.MaterialCommandListAssignments())
+	except Exception as e:
+		print(f'   ERROR registering Material management commands: {e}')
+	try:
+		import opspro.Sections
+		App.registerCommand(opspro.Sections.BeamSectionCommandNew())
+		App.registerCommand(opspro.Sections.BeamSectionCommandEdit())
+		App.registerCommand(opspro.Sections.BeamSectionCommandDelete())
+		App.registerCommand(opspro.Sections.BeamSectionCommandClone())
+		App.registerCommand(opspro.Sections.BeamSectionCommandAssign())
+		App.registerCommand(opspro.Sections.BeamSectionCommandUnassign())
+		App.registerCommand(opspro.Sections.SectionCommandListShapes())
+		App.registerCommand(opspro.Sections.SectionCommandListPresets())
+	except Exception as e:
+		print(f'   ERROR registering Section commands: {e}')
+	try:
+		import opspro.Hinges
+		App.registerCommand(opspro.Hinges.BeamEndReleaseCommandNew())
+		App.registerCommand(opspro.Hinges.BeamRotationalHingeCommandNew())
+		App.registerCommand(opspro.Hinges.BeamShearHingeCommandNew())
+		App.registerCommand(opspro.Hinges.BeamHingeCommandEdit())
+		App.registerCommand(opspro.Hinges.BeamHingeCommandDelete())
+		App.registerCommand(opspro.Hinges.BeamHingeCommandClone())
+		App.registerCommand(opspro.Hinges.BeamHingeCommandAssign())
+		App.registerCommand(opspro.Hinges.BeamHingeCommandUnassign())
+	except Exception as e:
+		print(f'   ERROR registering Hinge commands: {e}')
 
 def _update_command_categories():
 	# This is an example of how to update command categories.
 	# In this case, we are moving the "New Material" command from the "Property" category to a new "Materials" category.
 	print('   Updating command categories...')
 
-	# remove un-used categories
-	App.removeCommandCategory(MpcContext.PreProcessor, 'Property')
-	App.removeCommandCategory(MpcContext.PreProcessor, 'Condition')
+	try:
+		# remove un-used categories
+		App.removeCommandCategory(MpcContext.PreProcessor, 'Property')
+		App.removeCommandCategory(MpcContext.PreProcessor, 'Condition')
 
-	# add new categories
-	App.addCommandCategory(MpcContext.PreProcessor, 'Settings', MpcPreProcessorContext.Property, -2)
-	App.addCommandCategory(MpcContext.PreProcessor, 'Properties', MpcPreProcessorContext.Property, -2)
+		# add new categories
+		App.addCommandCategory(MpcContext.PreProcessor, 'Settings', MpcPreProcessorContext.Property, -2)
+		App.addCommandCategory(MpcContext.PreProcessor, 'Properties', MpcPreProcessorContext.Property, -2)
+	except Exception as e:
+		print(f'   ERROR updating command categories: {e}')
 
 def _register_actions():
 	# This is an example of how to add actions to the UI.
@@ -142,96 +189,122 @@ def _register_actions():
 	print('   Adding a command action to the new category...')
 
 	# Settings
-	import opspro.Settings
-	App.addCommandAction(
-		MpcContext.PreProcessor, 
-		'Settings', 
-		[
-			(
-				'Document Settings', opspro.Settings.DocumentSettingsCommandEdit.COMMAND_NAME,
-				pkgutil.get_data('opspro', 'assets/images/document_settings.ico'), True
-			),
-		],
-		'Settings'
-	)
+	try:
+		import opspro.Settings
+		App.addCommandAction(
+			MpcContext.PreProcessor, 
+			'Settings', 
+			[
+				(
+					'Document Settings', opspro.Settings.DocumentSettingsCommandEdit.COMMAND_NAME,
+					pkgutil.get_data('opspro', 'assets/images/document_settings.ico'), True
+				),
+			],
+			'Settings'
+		)
+	except Exception as e:
+		print(f'   ERROR registering Settings action: {e}')
 
-	# Properties
-	import opspro.UserNotes
-	App.addCommandAction(
-		MpcContext.PreProcessor,
-		'Properties',
-		[
-			(
-				'User Note', opspro.UserNotes.UserNoteCommandNew.COMMAND_NAME,
-				pkgutil.get_data('opspro', 'assets/images/user_notes_add.ico'), True
-			),
-		],
-		'User Notes'
-	)
-	import opspro.Materials
-	App.addCommandAction(
-		MpcContext.PreProcessor, 
-		'Properties', 
-		[
-			(
-				'Steel', opspro.Materials.SteelMaterialCommandNew.COMMAND_NAME,
-				pkgutil.get_data('opspro', 'assets/images/material_steel_add.ico'), True
-			),
-			(
-				'Concrete', opspro.Materials.ConcreteMaterialCommandNew.COMMAND_NAME,
-				pkgutil.get_data('opspro', 'assets/images/material_concrete_add.ico'), True
-			),
-			(
-				'Soil', opspro.Materials.SoilMaterialCommandNew.COMMAND_NAME,
-				pkgutil.get_data('opspro', 'assets/images/material_soil_add.ico'), True
-			),
-		],
-		'Materials'
-	)
-	import opspro.Sections
-	App.addCommandAction(
-		MpcContext.PreProcessor,
-		'Properties',
-		[
-			(
-				'Beam Section', opspro.Sections.BeamSectionCommandNew.COMMAND_NAME,
-				pkgutil.get_data('opspro', 'assets/images/beam_section_add.ico'), True
-			),
-		],
-		'Sections'
-	)
-	import opspro.Hinges
-	App.addCommandAction(
-		MpcContext.PreProcessor,
-		'Properties',
-		[
-			(
-				'End Release', opspro.Hinges.BeamEndReleaseCommandNew.COMMAND_NAME,
-				pkgutil.get_data('opspro', 'assets/images/beam_end_release_add.ico'), True
-			),
-			(
-				'Rotational Hinge', opspro.Hinges.BeamRotationalHingeCommandNew.COMMAND_NAME,
-				pkgutil.get_data('opspro', 'assets/images/beam_rotational_hinge_add.ico'), True
-			),
-			(
-				'Shear Hinge', opspro.Hinges.BeamShearHingeCommandNew.COMMAND_NAME,
-				pkgutil.get_data('opspro', 'assets/images/beam_shear_hinge_add.ico'), True
-			),
-		],
-		'Beam Hinges'
-	)
-	import opspro.utils
-	App.addCommandAction(
-		MpcContext.PreProcessor,
-		'Properties',
-		[
-			(
-				'Show Assignments', opspro.utils.AssignmentRegistryCommandShow.COMMAND_NAME,
-				pkgutil.get_data('opspro', 'assets/images/materials.ico'), True
-			),
-		],
-		'Assignments'
-	)
+	# Properties - User Notes
+	try:
+		import opspro.UserNotes
+		App.addCommandAction(
+			MpcContext.PreProcessor,
+			'Properties',
+			[
+				(
+					'User Note', opspro.UserNotes.UserNoteCommandNew.COMMAND_NAME,
+					pkgutil.get_data('opspro', 'assets/images/user_notes_add.ico'), True
+				),
+			],
+			'User Notes'
+		)
+	except Exception as e:
+		print(f'   ERROR registering UserNotes action: {e}')
+
+	# Properties - Materials
+	try:
+		import opspro.Materials
+		App.addCommandAction(
+			MpcContext.PreProcessor, 
+			'Properties', 
+			[
+				(
+					'Steel', opspro.Materials.SteelMaterialCommandNew.COMMAND_NAME,
+					pkgutil.get_data('opspro', 'assets/images/material_steel_add.ico'), True
+				),
+				(
+					'Concrete', opspro.Materials.ConcreteMaterialCommandNew.COMMAND_NAME,
+					pkgutil.get_data('opspro', 'assets/images/material_concrete_add.ico'), True
+				),
+				(
+					'Soil', opspro.Materials.SoilMaterialCommandNew.COMMAND_NAME,
+					pkgutil.get_data('opspro', 'assets/images/material_soil_add.ico'), True
+				),
+			],
+			'Materials'
+		)
+	except Exception as e:
+		print(f'   ERROR registering Materials action: {e}')
+
+	# Properties - Sections
+	try:
+		import opspro.Sections
+		App.addCommandAction(
+			MpcContext.PreProcessor,
+			'Properties',
+			[
+				(
+					'Beam Section', opspro.Sections.BeamSectionCommandNew.COMMAND_NAME,
+					pkgutil.get_data('opspro', 'assets/images/beam_section_add.ico'), True
+				),
+			],
+			'Sections'
+		)
+	except Exception as e:
+		print(f'   ERROR registering Sections action: {e}')
+	
+	# Properties - Hinges
+	try:
+		import opspro.Hinges
+		App.addCommandAction(
+			MpcContext.PreProcessor,
+			'Properties',
+			[
+				(
+					'End Release', opspro.Hinges.BeamEndReleaseCommandNew.COMMAND_NAME,
+					pkgutil.get_data('opspro', 'assets/images/beam_end_release_add.ico'), True
+				),
+				(
+					'Rotational Hinge', opspro.Hinges.BeamRotationalHingeCommandNew.COMMAND_NAME,
+					pkgutil.get_data('opspro', 'assets/images/beam_rotational_hinge_add.ico'), True
+				),
+				(
+					'Shear Hinge', opspro.Hinges.BeamShearHingeCommandNew.COMMAND_NAME,
+					pkgutil.get_data('opspro', 'assets/images/beam_shear_hinge_add.ico'), True
+				),
+			],
+			'Beam Hinges'
+		)
+	except Exception as e:
+		print(f'   ERROR registering Hinges action: {e}')
+	
+	# Properties - Assignments
+	try:
+		import opspro.utils
+		App.addCommandAction(
+			MpcContext.PreProcessor,
+			'Properties',
+			[
+				(
+					'Show Assignments', opspro.utils.AssignmentRegistryCommandShow.COMMAND_NAME,
+					pkgutil.get_data('opspro', 'assets/images/materials.ico'), True
+				),
+			],
+			'Assignments'
+		)
+	except Exception as e:
+		print(f'   ERROR registering Assignments action: {e}')
 
 def _add_default_components(doc):
 	import opspro.Settings
