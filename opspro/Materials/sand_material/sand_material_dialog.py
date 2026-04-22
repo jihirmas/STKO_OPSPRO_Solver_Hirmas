@@ -5,6 +5,7 @@ from PySide2 import QtCore, QtGui, QtWidgets
 from opspro.parameters.ParameterManager import ParameterManager
 from opspro.parameters.ExpressionGuiTools import ExpressionLineEdit
 from opspro.Materials.sand_material.sand_material import SandMaterial
+from opspro.Materials.sand_material.elasticity_properties_formulas import compute_elastic_constants
 
 
 def _hline():
@@ -42,6 +43,7 @@ class SandMaterialDialog(QtWidgets.QDialog):
         self._setup_ui()
         self._populate(material)
         self._on_material_type_changed(self._combo_type.currentText())
+        self._update_elasticity_disabled_states()
 
     # ------------------------------------------------------------------
     # UI construction
@@ -110,10 +112,81 @@ class SandMaterialDialog(QtWidgets.QDialog):
         grid.addLayout(name_layout, row, 1, 1, 2)
         row += 1
 
+        # ---- Constitutive model images (one per type, hidden/shown dynamically) ----
+        # Mohr-Coulomb image
+        self._img_mohr_coulomb = QtWidgets.QLabel()
+        self._img_mohr_coulomb.setAlignment(QtCore.Qt.AlignHCenter | QtCore.Qt.AlignVCenter)
+        self._img_mohr_coulomb.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred)
+        self._img_mohr_coulomb.setStyleSheet('background: white;')
+        try:
+            image_data = pkgutil.get_data('opspro', 'assets/images/sand_material_mohr_coulomb.png')
+            pixmap = QtGui.QPixmap()
+            pixmap.loadFromData(image_data)
+            self._img_mohr_coulomb.setPixmap(pixmap)
+        except Exception:
+            pass
+        grid.addWidget(self._img_mohr_coulomb, row, 0, 1, 3)
+        row += 1
+
+        # Drucker-Prager image
+        self._img_drucker_prager = QtWidgets.QLabel()
+        self._img_drucker_prager.setAlignment(QtCore.Qt.AlignHCenter | QtCore.Qt.AlignVCenter)
+        self._img_drucker_prager.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred)
+        self._img_drucker_prager.setStyleSheet('background: white;')
+        try:
+            image_data = pkgutil.get_data('opspro', 'assets/images/sand_material_drucker_prager.png')
+            pixmap = QtGui.QPixmap()
+            pixmap.loadFromData(image_data)
+            self._img_drucker_prager.setPixmap(pixmap)
+        except Exception:
+            pass
+        grid.addWidget(self._img_drucker_prager, row, 0, 1, 3)
+        row += 1
+
+        # Von-Mises image
+        self._img_von_mises = QtWidgets.QLabel()
+        self._img_von_mises.setAlignment(QtCore.Qt.AlignHCenter | QtCore.Qt.AlignVCenter)
+        self._img_von_mises.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred)
+        self._img_von_mises.setStyleSheet('background: white;')
+        try:
+            image_data = pkgutil.get_data('opspro', 'assets/images/sand_material_von_mises.png')
+            pixmap = QtGui.QPixmap()
+            pixmap.loadFromData(image_data)
+            self._img_von_mises.setPixmap(pixmap)
+        except Exception:
+            pass
+        grid.addWidget(self._img_von_mises, row, 0, 1, 3)
+        row += 1
+
+        # Initially hide all images (will be shown by _on_material_type_changed)
+        self._img_mohr_coulomb.setVisible(False)
+        self._img_drucker_prager.setVisible(False)
+        self._img_von_mises.setVisible(False)
+
         # ---- Elasticity section ----
         grid.addWidget(_hline(), row, 0, 1, 3)
         row += 1
         grid.addWidget(QtWidgets.QLabel('<b>Elasticity properties</b>'), row, 0, 1, 3)
+        row += 1
+
+        # ---- Elasticity pair selector ----
+        # Define all possible pairs of known elastic constants and their compute options
+        self._elasticity_pairs = [
+            ('E, ν (compute G, K)', {'known': ['E', 'nu'], 'computed': ['G', 'K'], 'func': lambda E, nu: compute_elastic_constants(E=E, v=nu)}),
+            ('E, G (compute ν, K)', {'known': ['E', 'G'], 'computed': ['nu', 'K'], 'func': lambda E, G: compute_elastic_constants(E=E, G=G)}),
+            ('E, K (compute ν, G)', {'known': ['E', 'K'], 'computed': ['nu', 'G'], 'func': lambda E, K: compute_elastic_constants(E=E, K=K)}),
+            ('G, ν (compute E, K)', {'known': ['G', 'nu'], 'computed': ['E', 'K'], 'func': lambda G, nu: compute_elastic_constants(G=G, v=nu)}),
+            ('G, K (compute E, ν)', {'known': ['G', 'K'], 'computed': ['E', 'nu'], 'func': lambda G, K: compute_elastic_constants(G=G, K=K)}),
+            ('K, ν (compute E, G)', {'known': ['K', 'nu'], 'computed': ['E', 'G'], 'func': lambda K, nu: compute_elastic_constants(K=K, v=nu)}),
+        ]
+
+        self._combo_elasticity_pair = QtWidgets.QComboBox()
+        self._combo_elasticity_pair.addItems([pair[0] for pair in self._elasticity_pairs])
+        self._combo_elasticity_pair.setCurrentIndex(0)  # Default: E, ν
+        self._combo_elasticity_pair.currentIndexChanged.connect(self._on_elasticity_pair_changed)
+        grid.addWidget(_lbl('Known values:'), row, 0)
+        grid.addWidget(self._combo_elasticity_pair, row, 1)
+        grid.addWidget(_desc('Select which two elastic constants are known; others will be computed automatically'), row, 2)
         row += 1
 
         self._edit_E = ExpressionLineEdit(default_value=_default_E)
@@ -139,6 +212,15 @@ class SandMaterialDialog(QtWidgets.QDialog):
         grid.addWidget(self._edit_nu, row, 1)
         grid.addWidget(_desc("Poisson's ratio"), row, 2)
         row += 1
+
+        # Connect signals to auto-compute missing values
+        self._edit_E.textChanged.connect(self._on_elasticity_value_changed)
+        self._edit_G.textChanged.connect(self._on_elasticity_value_changed)
+        self._edit_K.textChanged.connect(self._on_elasticity_value_changed)
+        self._edit_nu.textChanged.connect(self._on_elasticity_value_changed)
+        
+        # Track disabled state for E due to elasticity pair selection (separate from nonlinear)
+        self._E_disabled_by_elasticity = False
 
         # ---- Unit weight and void ratio section ----
         # ---- Unit weight section ----
@@ -200,57 +282,6 @@ class SandMaterialDialog(QtWidgets.QDialog):
         grid.addWidget(self._combo_calibration, row, 1)
         grid.addWidget(self._desc_calibration, row, 2)
         row += 1
-
-        # ---- Constitutive model images (one per type, hidden/shown dynamically) ----
-        # Mohr-Coulomb image
-        self._img_mohr_coulomb = QtWidgets.QLabel()
-        self._img_mohr_coulomb.setAlignment(QtCore.Qt.AlignHCenter | QtCore.Qt.AlignVCenter)
-        self._img_mohr_coulomb.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred)
-        self._img_mohr_coulomb.setStyleSheet('background: white;')
-        try:
-            image_data = pkgutil.get_data('opspro', 'assets/images/sand_material_mohr_coulomb.png')
-            pixmap = QtGui.QPixmap()
-            pixmap.loadFromData(image_data)
-            self._img_mohr_coulomb.setPixmap(pixmap)
-        except Exception:
-            pass
-        grid.addWidget(self._img_mohr_coulomb, row, 0, 1, 3)
-        row += 1
-
-        # Drucker-Prager image
-        self._img_drucker_prager = QtWidgets.QLabel()
-        self._img_drucker_prager.setAlignment(QtCore.Qt.AlignHCenter | QtCore.Qt.AlignVCenter)
-        self._img_drucker_prager.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred)
-        self._img_drucker_prager.setStyleSheet('background: white;')
-        try:
-            image_data = pkgutil.get_data('opspro', 'assets/images/sand_material_drucker_prager.png')
-            pixmap = QtGui.QPixmap()
-            pixmap.loadFromData(image_data)
-            self._img_drucker_prager.setPixmap(pixmap)
-        except Exception:
-            pass
-        grid.addWidget(self._img_drucker_prager, row, 0, 1, 3)
-        row += 1
-
-        # Von-Mises image
-        self._img_von_mises = QtWidgets.QLabel()
-        self._img_von_mises.setAlignment(QtCore.Qt.AlignHCenter | QtCore.Qt.AlignVCenter)
-        self._img_von_mises.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred)
-        self._img_von_mises.setStyleSheet('background: white;')
-        try:
-            image_data = pkgutil.get_data('opspro', 'assets/images/sand_material_von_mises.png')
-            pixmap = QtGui.QPixmap()
-            pixmap.loadFromData(image_data)
-            self._img_von_mises.setPixmap(pixmap)
-        except Exception:
-            pass
-        grid.addWidget(self._img_von_mises, row, 0, 1, 3)
-        row += 1
-
-        # Initially hide all images (will be shown by _on_material_type_changed)
-        self._img_mohr_coulomb.setVisible(False)
-        self._img_drucker_prager.setVisible(False)
-        self._img_von_mises.setVisible(False)
 
         # ---- Strength parameters section ----
         grid.addWidget(_hline(), row, 0, 1, 3)
@@ -422,6 +453,9 @@ class SandMaterialDialog(QtWidgets.QDialog):
         
         # Update displayed image based on material type
         self._update_image(material_type)
+        
+        # Ensure elasticity disabled states are updated
+        self._update_elasticity_disabled_states()
 
     # ------------------------------------------------------------------
     # Nonlinear elasticity toggle
@@ -436,7 +470,7 @@ class SandMaterialDialog(QtWidgets.QDialog):
         ):
             w.setEnabled(enabled)
         
-        # When enabling nonlinear elasticity, disable E and copy its value to E_ref
+        # When enabling nonlinear elasticity, disable E (unless it's already disabled by elasticity pair)
         if enabled:
             E_val = self._edit_E.value
             self._edit_E.setEnabled(False)
@@ -444,7 +478,8 @@ class SandMaterialDialog(QtWidgets.QDialog):
             
             self._edit_E_ref.set_quantity(E_val)
         else:
-            self._edit_E.setEnabled(True)
+            # When disabling nonlinear elasticity, restore E enabled state based on elasticity pair
+            self._update_elasticity_disabled_states()
 
     # ------------------------------------------------------------------
     # E_ref synchronization
@@ -455,6 +490,166 @@ class SandMaterialDialog(QtWidgets.QDialog):
         if self._check_nonlinear.isChecked():
             E_ref_val = self._edit_E_ref.value
             self._edit_E.set_quantity(E_ref_val)
+
+    # ------------------------------------------------------------------
+    # Elasticity properties auto-computation
+    # ------------------------------------------------------------------
+
+    def _on_elasticity_pair_changed(self, index: int):
+        """Handle elasticity pair selection change."""
+        self._update_elasticity_disabled_states()
+
+    def _update_elasticity_disabled_states(self):
+        """Update which elasticity fields are disabled based on current pair selection and nonlinear state."""
+        try:
+            # Get current elasticity pair configuration
+            index = self._combo_elasticity_pair.currentIndex()
+            if index < 0 or index >= len(self._elasticity_pairs):
+                return
+
+            pair_config = self._elasticity_pairs[index][1]
+            known_fields = pair_config['known']
+            computed_fields = pair_config['computed']
+
+            # Check if nonlinear elasticity is enabled (which always disables E)
+            nonlinear_enabled = self._check_nonlinear.isChecked()
+
+            # Update disabled state for each field
+            field_widgets = {
+                'E': self._edit_E,
+                'G': self._edit_G,
+                'K': self._edit_K,
+                'nu': self._edit_nu,
+            }
+
+            for field_name, widget in field_widgets.items():
+                # If nonlinear is enabled and field is E, always disable
+                if nonlinear_enabled and field_name == 'E':
+                    widget.setEnabled(False)
+                    self._E_disabled_by_elasticity = False
+                # If field is computed, disable it
+                elif field_name in computed_fields:
+                    widget.setEnabled(False)
+                    if field_name == 'E':
+                        self._E_disabled_by_elasticity = True
+                # Otherwise, enable it
+                else:
+                    widget.setEnabled(True)
+                    if field_name == 'E':
+                        self._E_disabled_by_elasticity = False
+
+        except Exception as e:
+            pass
+
+    def _on_elasticity_value_changed(self):
+        """Auto-compute missing elastic constants when a known value changes."""
+        try:
+            # Get current elasticity pair configuration
+            index = self._combo_elasticity_pair.currentIndex()
+            if index < 0 or index >= len(self._elasticity_pairs):
+                return
+
+            pair_config = self._elasticity_pairs[index][1]
+            known_fields = pair_config['known']
+            computed_fields = pair_config['computed']
+
+            # Map field names to their widgets
+            field_to_widget = {
+                'E': self._edit_E,
+                'G': self._edit_G,
+                'K': self._edit_K,
+                'nu': self._edit_nu,
+            }
+
+            # Get the unit registry
+            ureg = ParameterManager._unit_registry
+
+            # Check if all known values are valid and extract them
+            known_values = {}
+            known_units = {}  # Store original units for pressure quantities
+            
+            for field_name in known_fields:
+                widget = field_to_widget[field_name]
+                
+                # Check for errors
+                if widget.error:
+                    return  # If any known field has error, don't compute
+                
+                # Get the value
+                val = widget.value
+                if not val or not hasattr(val, 'magnitude'):
+                    return  # If value is not available, don't compute
+                
+                # Store original value and unit
+                known_values[field_name] = val
+                if field_name in ['E', 'G', 'K']:
+                    known_units[field_name] = val.units
+
+            # Now we have all known values, compute the missing ones using SI base units (Pa)
+            try:
+                # Build kwargs for compute_elastic_constants
+                # Convert all pressure quantities to Pa for computation
+                kwargs = {}
+                for field_name, val in known_values.items():
+                    if field_name == 'nu':
+                        # Poisson's ratio is dimensionless, use magnitude directly
+                        kwargs['v'] = float(val.magnitude)
+                    else:
+                        # Convert pressure to Pa
+                        val_in_pa = val.to(ureg.Pa)
+                        kwargs[field_name] = float(val_in_pa.magnitude)
+                
+                # Call the compute function - it will return all values in the same units as input
+                result = compute_elastic_constants(**kwargs)
+
+                # Update computed fields with the result
+                # Block signals to avoid infinite recursion
+                self._edit_E.blockSignals(True)
+                self._edit_G.blockSignals(True)
+                self._edit_K.blockSignals(True)
+                self._edit_nu.blockSignals(True)
+
+                for field_name in computed_fields:
+                    widget = field_to_widget[field_name]
+                    
+                    # Get the computed value from result
+                    # Result keys are: 'E', 'G', 'K', 'v' (not 'nu')
+                    result_key = 'v' if field_name == 'nu' else field_name
+                    
+                    if result_key in result:
+                        computed_val = result[result_key]
+                        
+                        # Create a quantity with the appropriate unit
+                        if field_name == 'nu':
+                            # Poisson's ratio is dimensionless
+                            qtty = computed_val * ureg.dimensionless
+                        else:
+                            # Use the unit from a known pressure field if available
+                            if known_units:
+                                # Get the first known unit (they should all be the same)
+                                unit = list(known_units.values())[0]
+                            else:
+                                # Fallback to Pa
+                                unit = ureg.Pa
+                            
+                            # The result is in Pa, convert to the desired unit
+                            qtty = (computed_val * ureg.Pa).to(unit)
+                        
+                        widget.set_quantity(qtty)
+
+                # Reconnect signals
+                self._edit_E.blockSignals(False)
+                self._edit_G.blockSignals(False)
+                self._edit_K.blockSignals(False)
+                self._edit_nu.blockSignals(False)
+
+            except Exception as compute_error:
+                # If computation fails, just silently ignore
+                # This can happen if the values don't make physical sense
+                pass
+
+        except Exception as e:
+            pass
 
     # ------------------------------------------------------------------
     # Population
@@ -631,6 +826,16 @@ class SandMaterialDialog(QtWidgets.QDialog):
             errors.append('\u03c3_y must be a stress/pressure quantity (e.g. 100[kPa]).')
         elif sigma_y_val.to_base_units().magnitude <= 0.0:
             errors.append('\u03c3_y must be positive.')
+
+        # ---- Von-Mises validation: sigma_y and c are mutually exclusive ----
+        material_type = self._combo_type.currentText()
+        if material_type == 'Von-Mises':
+            sigma_y_empty = not sigma_y_val or sigma_y_val.to_base_units().magnitude <= 0.0
+            c_empty = not c_val or c_val.to_base_units().magnitude < 0.0
+            if sigma_y_empty and c_empty:
+                errors.append('Von-Mises: Either \u03c3_y (yield stress) or c (cohesion) must be provided.')
+            elif not sigma_y_empty and not c_empty:
+                errors.append('Von-Mises: \u03c3_y (yield stress) and c (cohesion) are mutually exclusive. Provide only one.')
 
         # ---- Nonlinear elasticity fields (if enabled) ----
         nonlinear = self._check_nonlinear.isChecked()
