@@ -58,6 +58,10 @@ class SandMaterial(Material):
         
         # Visual material (FxMaterial or None)
         self.visual_material = None
+        
+        # Geotechnical material tester state. This stores only UI/tester data;
+        # the actual material parameters remain regular SandMaterial fields.
+        self.tester_state = {}
 
     @classmethod
     def dialog_class(cls):
@@ -101,6 +105,8 @@ class SandMaterial(Material):
             'n_exp': self._qty_to_dict(self.n_exp),
             # visual material
             'visual_material': fx_material_to_dict(self.visual_material) if self.visual_material is not None else None,
+            # tester
+            'tester_state': dict(self.tester_state) if isinstance(self.tester_state, dict) else {},
         }
 
     def _from_dict(self, data):
@@ -134,6 +140,23 @@ class SandMaterial(Material):
         # visual material
         _vm = data.get('visual_material', None)
         self.visual_material = fx_material_from_dict(_vm) if _vm is not None else None
+        # tester
+        state = data.get('tester_state', {})
+        self.tester_state = dict(state) if isinstance(state, dict) else {}
+
+    def write_tcl_for_tester(self, out_file, tag: int) -> int:
+        """
+        Write this SandMaterial as an OpenSees nDMaterial for the geotechnical
+        tester and return the material tag used by the generated TCL.
+
+        The tester calls this hook when preparing its temporary OpenSees script.
+        The real SandMaterial TCL syntax is intentionally left for the material
+        writer implementation.
+        """
+        raise NotImplementedError(
+            'SandMaterial.write_tcl_for_tester is not implemented yet. '
+            'Provide the SandMaterial OpenSees TCL writer before running the tester.'
+        )
 
     def __repr__(self):
         return (

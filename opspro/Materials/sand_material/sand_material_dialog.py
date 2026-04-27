@@ -6,6 +6,7 @@ from opspro.parameters.ParameterManager import ParameterManager
 from opspro.parameters.ExpressionGuiTools import ExpressionLineEdit
 from opspro.Materials.sand_material.sand_material import SandMaterial
 from opspro.Materials.sand_material.elasticity_properties_formulas import compute_elastic_constants
+from opspro.testers.TesterGeothechnical import GeotechnicalTesterWidget
 
 
 def _hline():
@@ -53,7 +54,7 @@ class SandMaterialDialog(QtWidgets.QDialog):
         title = 'New Sand Material' if self._is_new else 'Edit Sand Material'
         self.setWindowTitle(title)
         self.setMinimumWidth(750)
-        self.setMinimumHeight(650)
+        self.setMinimumHeight(480)
 
         ureg = ParameterManager._unit_registry
         _default_E           = 50e6    * ureg.Pa
@@ -90,27 +91,6 @@ class SandMaterialDialog(QtWidgets.QDialog):
             return l
 
         row = 0
-
-        # ---- Name ----
-        self._edit_name = QtWidgets.QLineEdit()
-        self._edit_name.setPlaceholderText('e.g. Dense Sand')
-        self._btn_shader = QtWidgets.QPushButton('Shader\u2026')
-        self._btn_shader.setToolTip('Edit visual shader\u2026')
-        try:
-            icon_data = pkgutil.get_data('opspro', 'assets/images/shader.ico')
-            pixmap = QtGui.QPixmap()
-            pixmap.loadFromData(icon_data)
-            self._btn_shader.setIcon(QtGui.QIcon(pixmap))
-        except Exception:
-            pass
-        self._btn_shader.clicked.connect(self._on_edit_shader)
-        name_layout = QtWidgets.QHBoxLayout()
-        name_layout.setContentsMargins(0, 0, 0, 0)
-        name_layout.addWidget(self._edit_name)
-        name_layout.addWidget(self._btn_shader)
-        grid.addWidget(_lbl('Name:'), row, 0)
-        grid.addLayout(name_layout, row, 1, 1, 2)
-        row += 1
 
         # ---- Constitutive model images (one per type, hidden/shown dynamically) ----
         # Mohr-Coulomb image
@@ -380,8 +360,37 @@ class SandMaterialDialog(QtWidgets.QDialog):
         scroll_content.setLayout(grid)
         scroll.setWidget(scroll_content)
 
+        self._edit_name = QtWidgets.QLineEdit()
+        self._edit_name.setPlaceholderText('e.g. Dense Sand')
+        self._btn_shader = QtWidgets.QPushButton('Shader\u2026')
+        self._btn_shader.setToolTip('Edit visual shader\u2026')
+        try:
+            icon_data = pkgutil.get_data('opspro', 'assets/images/shader.ico')
+            pixmap = QtGui.QPixmap()
+            pixmap.loadFromData(icon_data)
+            self._btn_shader.setIcon(QtGui.QIcon(pixmap))
+        except Exception:
+            pass
+        self._btn_shader.clicked.connect(self._on_edit_shader)
+
+        header_layout = QtWidgets.QHBoxLayout()
+        header_layout.setContentsMargins(0, 0, 0, 0)
+        header_layout.addWidget(_lbl('Name:'))
+        header_layout.addWidget(self._edit_name, 1)
+        header_layout.addWidget(self._btn_shader)
+
+        tabs = QtWidgets.QTabWidget()
+        tabs.addTab(scroll, 'Main Settings')
+        self._tester_tab = GeotechnicalTesterWidget(
+            material=self._material,
+            material_factory=self._make_material_for_tester,
+        )
+        tabs.addTab(self._tester_tab, 'Tester')
+
         main_layout = QtWidgets.QVBoxLayout(self)
-        main_layout.addWidget(scroll)
+        main_layout.addLayout(header_layout)
+        main_layout.addSpacing(4)
+        main_layout.addWidget(tabs)
         main_layout.addSpacing(4)
         main_layout.addWidget(_hline())
         main_layout.addWidget(btn_box)
@@ -687,7 +696,7 @@ class SandMaterialDialog(QtWidgets.QDialog):
     # Validation & acceptance
     # ------------------------------------------------------------------
 
-    def _on_accepted(self):
+    def _collect_validated_data(self, show_errors=True):
         errors = []
 
         # ---- Name ----
@@ -877,10 +886,17 @@ class SandMaterialDialog(QtWidgets.QDialog):
             n_exp_val = self._edit_n_exp.value
 
         if errors:
-            QtWidgets.QMessageBox.warning(self, 'Invalid input', '\n'.join(errors))
-            return
+            self._last_validation_errors = errors
+            if show_errors:
+                QtWidgets.QMessageBox.warning(self, 'Invalid input', '\n'.join(errors))
+            return None
 
-        self._validated_data = {
+        tester_state = {}
+        if hasattr(self, '_tester_tab') and self._tester_tab is not None:
+            tester_state = self._tester_tab.state()
+
+        self._last_validation_errors = []
+        return {
             'name':                name,
             'E':                   E_val,
             'G':                   G_val,
@@ -901,8 +917,26 @@ class SandMaterialDialog(QtWidgets.QDialog):
             'P_ref':               P_ref_val,
             'n_exp':               n_exp_val,
             'visual_material':     self._visual_material,
+            'tester_state':        tester_state,
         }
+
+    def _on_accepted(self):
+        data = self._collect_validated_data(show_errors=True)
+        if data is None:
+            return
+
+        self._validated_data = data
         self.accept()
+
+    def _make_material_for_tester(self):
+        data = self._collect_validated_data(show_errors=False)
+        if data is None:
+            errors = getattr(self, '_last_validation_errors', ['Invalid material data'])
+            raise ValueError('\n'.join(errors))
+        material_id = int(getattr(self._material, 'id', 1) or 1)
+        material = SandMaterial(id=material_id, name=data['name'])
+        self._apply_data_to_material(material, data)
+        return material
 
     # ------------------------------------------------------------------
     # Public API
@@ -921,6 +955,10 @@ class SandMaterialDialog(QtWidgets.QDialog):
         d = self.data()
         if not d:
             return
+        self._apply_data_to_material(material, d)
+
+    @staticmethod
+    def _apply_data_to_material(material: SandMaterial, d: dict):
         material.name                = d['name']
         material.E                   = d['E']
         material.G                   = d['G']
@@ -941,6 +979,7 @@ class SandMaterialDialog(QtWidgets.QDialog):
         material.P_ref               = d['P_ref']
         material.n_exp               = d['n_exp']
         material.visual_material     = d.get('visual_material', None)
+        material.tester_state        = dict(d.get('tester_state', {}))
 
     # ------------------------------------------------------------------
     # Shader editor
