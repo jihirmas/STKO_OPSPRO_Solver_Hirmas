@@ -49,12 +49,12 @@ def _scroll_area(widget, min_height=70):
 
 
 def _style_splitter(splitter):
-    splitter.setHandleWidth(9)
+    splitter.setHandleWidth(5)
     splitter.setStyleSheet(
         'QSplitter::handle {'
-        'background: #d6d6d6;'
-        'border: 1px solid #9f9f9f;'
-        'margin: 1px;'
+        'background: #cfcfcf;'
+        'border: 1px solid #a8a8a8;'
+        'margin: 0;'
         '}'
         'QSplitter::handle:hover {'
         'background: #b9cde8;'
@@ -63,9 +63,24 @@ def _style_splitter(splitter):
     )
 
 
+class _CompactDoubleSpinBox(QtWidgets.QDoubleSpinBox):
+    def textFromValue(self, value):
+        text = '{:.12g}'.format(float(value))
+        return '0' if text == '-0' else text
+
+
 class PlotWidget(QtWidgets.QWidget):
-    def __init__(self, xlabel, ylabel, parent=None, toolbar=True, compact_toolbar=True):
+    def __init__(
+        self,
+        xlabel,
+        ylabel,
+        parent=None,
+        toolbar=True,
+        compact_toolbar=True,
+        preferred_height=150,
+    ):
         super().__init__(parent)
+        self._preferred_height = preferred_height
         self._figure = Figure(figsize=(4.0, 2.4))
         self._canvas = FigureCanvas(self._figure)
         self._toolbar = NavigationToolbar(self._canvas, self) if toolbar else None
@@ -74,14 +89,14 @@ class PlotWidget(QtWidgets.QWidget):
         self._ylabel = ylabel
         self._apply_axes_style()
         self._axes.grid(True, alpha=0.25)
-        self._figure.subplots_adjust(left=0.10, right=0.98, bottom=0.16, top=0.95)
+        self._figure.subplots_adjust(left=0.13, right=0.98, bottom=0.24, top=0.94)
         self._pan_start = None
         self._canvas.mpl_connect('scroll_event', self._on_scroll)
         self._canvas.mpl_connect('button_press_event', self._on_button_press)
         self._canvas.mpl_connect('button_release_event', self._on_button_release)
         self._canvas.mpl_connect('motion_notify_event', self._on_motion)
-        self.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
-        self._canvas.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
+        self.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred)
+        self._canvas.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Ignored)
         layout = QtWidgets.QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
@@ -91,7 +106,13 @@ class PlotWidget(QtWidgets.QWidget):
                 self._toolbar.setMaximumHeight(26)
             layout.addWidget(self._toolbar)
         layout.addWidget(self._canvas)
-        self.setMinimumHeight(90)
+        self.setMinimumHeight(70)
+
+    def sizeHint(self):
+        return QtCore.QSize(400, self._preferred_height)
+
+    def minimumSizeHint(self):
+        return QtCore.QSize(120, self.minimumHeight())
 
     def set_series(self, series):
         self._axes.clear()
@@ -113,7 +134,7 @@ class PlotWidget(QtWidgets.QWidget):
                 )
         if has_data and any(item.get('label') for item in series):
             self._axes.legend(loc='best', fontsize=7)
-        self._figure.subplots_adjust(left=0.10, right=0.98, bottom=0.16, top=0.95)
+        self._figure.subplots_adjust(left=0.13, right=0.98, bottom=0.24, top=0.94)
         self._canvas.draw_idle()
 
     def _apply_axes_style(self):
@@ -330,6 +351,7 @@ class GeotechnicalTestRunner(QtCore.QObject):
         try:
             import PyMpc
             import PyMpc.App
+            from PyMpc import MpcStandardPaths
         except Exception as exc:
             raise RuntimeError('PyMpc is required to run OpenSees from the tester') from exc
 
@@ -337,7 +359,8 @@ class GeotechnicalTestRunner(QtCore.QObject):
         if not command:
             raise RuntimeError('No external OpenSees solver kit is configured')
 
-        temp_dir = tu.get_standard_tester_dir()
+        temp_dir = '{}{}TesterGeotechnical'.format(MpcStandardPaths.getStandardPathDataLocation(), os.sep)
+        temp_dir = temp_dir.replace('\\', '/')
         os.makedirs(temp_dir, exist_ok=True)
         script_file = tu.normalize_path(os.path.join(temp_dir, 'script.tcl'))
         output_file = tu.normalize_path(os.path.join(temp_dir, 'output.txt'))
@@ -346,9 +369,7 @@ class GeotechnicalTestRunner(QtCore.QObject):
         with open(template_file, 'r', encoding='utf-8') as file:
             template = file.read()
 
-        material_tag = int(getattr(self.material, 'id', 1) or 1)
-        material_buffer = StringIO()
-        self.material.write_tcl_for_tester(material_buffer, material_tag)
+        material_buffer, material_tag = self._write_materials_for_tester(PyMpc, temp_dir)
 
         flags1 = []
         flags2 = []
@@ -373,6 +394,41 @@ class GeotechnicalTestRunner(QtCore.QObject):
         with open(script_file, 'w', encoding='utf-8') as file:
             file.write(script)
         return command, temp_dir, script_file, output_file
+
+    def _write_materials_for_tester(self, PyMpc, temp_dir):
+        material_buffer = StringIO()
+        legacy_result = self._try_write_legacy_physical_properties(PyMpc, temp_dir, material_buffer)
+        if legacy_result is not None:
+            return material_buffer, legacy_result
+
+        material_tag = int(getattr(self.material, 'id', 1) or 1)
+        if not hasattr(self.material, 'write_tcl_for_tester'):
+            raise RuntimeError('Material does not provide write_tcl_for_tester(out_file, tag)')
+        returned_tag = self.material.write_tcl_for_tester(material_buffer, material_tag)
+        return material_buffer, int(returned_tag or material_tag)
+
+    def _try_write_legacy_physical_properties(self, PyMpc, temp_dir, material_buffer):
+        materials = self.material
+        if not hasattr(materials, 'items') or not hasattr(materials, 'getlastkey'):
+            return None
+        try:
+            import opspro.testers.TesterGeothechnical.tcl_input as tclin
+            import opspro.testers.TesterGeothechnical.write_physical_properties as write_physical_properties
+        except Exception:
+            return None
+
+        pinfo = tclin.process_info()
+        pinfo.out_dir = temp_dir
+        try:
+            doc = PyMpc.App.caeDocument()
+            pinfo.next_physicalProperties_id = doc.physicalProperties.getlastkey(0) + 1
+        except Exception:
+            pass
+        pinfo.out_file = material_buffer
+        pinfo.ptype = tclin.process_type.writing_tcl_for_material_tester
+        write_physical_properties.write_physical_properties(materials, pinfo, 'materials')
+        pinfo.out_file = None
+        return materials.getlastkey(0)
 
 
 class GeotechnicalTesterWidget(QtWidgets.QWidget):
@@ -419,43 +475,41 @@ class GeotechnicalTesterWidget(QtWidgets.QWidget):
         main.addWidget(note)
         main.addWidget(_hline())
 
-        section_splitter = QtWidgets.QSplitter(QtCore.Qt.Vertical)
-        section_splitter.setChildrenCollapsible(False)
-        section_splitter.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
-        _style_splitter(section_splitter)
-        main.addWidget(section_splitter, 1)
-
         self._history_type = QtWidgets.QComboBox()
         self._history_type.addItems(StrainHistoryFactory.getTypes())
         self._cycles = QtWidgets.QSpinBox()
         self._cycles.setRange(1, 1000)
         self._divisions = QtWidgets.QSpinBox()
         self._divisions.setRange(1, 1000000)
-        self._target = QtWidgets.QDoubleSpinBox()
+        self._target = _CompactDoubleSpinBox()
         self._target.setDecimals(8)
         self._target.setRange(-1.0e6, 1.0e6)
         self._target.setSingleStep(0.001)
-        self._scale_pos = QtWidgets.QDoubleSpinBox()
+        self._scale_pos = _CompactDoubleSpinBox()
         self._scale_pos.setDecimals(4)
         self._scale_pos.setRange(-1000.0, 1000.0)
-        self._scale_neg = QtWidgets.QDoubleSpinBox()
+        self._scale_neg = _CompactDoubleSpinBox()
         self._scale_neg.setDecimals(4)
         self._scale_neg.setRange(-1000.0, 1000.0)
         self._test_type = QtWidgets.QComboBox()
         self._test_type.addItem('Drained Triaxial')
         self._tested_component = QtWidgets.QComboBox()
         self._tested_component.addItems(STRAIN_COMPONENTS)
-        self._lch = QtWidgets.QDoubleSpinBox()
+        self._lch = _CompactDoubleSpinBox()
         self._lch.setDecimals(6)
         self._lch.setRange(1.0e-12, 1.0e12)
         self._lch.setValue(1.0)
 
-        top_splitter = QtWidgets.QSplitter(QtCore.Qt.Horizontal)
-        top_splitter.setChildrenCollapsible(False)
-        _style_splitter(top_splitter)
+        top_layout = QtWidgets.QHBoxLayout()
+        top_layout.setContentsMargins(0, 0, 0, 0)
+        top_layout.setSpacing(6)
+        main.addLayout(top_layout, 1)
 
         form_frame = QtWidgets.QFrame()
         form_frame.setFrameShape(QtWidgets.QFrame.StyledPanel)
+        form_frame.setMinimumSize(QtCore.QSize(235, 168))
+        form_frame.setMaximumWidth(285)
+        form_frame.setSizePolicy(QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Fixed)
         form_widget = QtWidgets.QWidget()
         form_frame_layout = QtWidgets.QVBoxLayout(form_frame)
         form_frame_layout.setContentsMargins(0, 0, 0, 0)
@@ -474,43 +528,51 @@ class GeotechnicalTesterWidget(QtWidgets.QWidget):
             ('Neg scale:', self._scale_neg),
         ]
         for index, (label, widget) in enumerate(fields):
-            row = index // 2
-            col = (index % 2) * 2
-            form.addWidget(QtWidgets.QLabel(label), row, col)
-            form.addWidget(widget, row, col + 1)
+            form.addWidget(QtWidgets.QLabel(label), index, 0)
+            form.addWidget(widget, index, 1)
+            widget.setMinimumWidth(150)
         form.setColumnStretch(1, 1)
-        form.setColumnStretch(3, 1)
+        form.setRowStretch(len(fields), 1)
 
-        top_splitter.addWidget(_scroll_area(form_frame, min_height=90))
+        form_scroll = _scroll_area(form_frame, min_height=168)
+        form_scroll.setMinimumWidth(245)
+        form_scroll.setMaximumWidth(300)
+        form_scroll.setSizePolicy(QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Fixed)
+        top_layout.addWidget(form_scroll, 0, QtCore.Qt.AlignTop)
 
-        self._history_plot = PlotWidget('Pseudo-time', 'Strain')
-        self._history_plot.setMinimumHeight(110)
+        self._history_plot = PlotWidget('Pseudo-time', 'Strain', preferred_height=170)
+        self._history_plot.setMinimumHeight(145)
         history_container = QtWidgets.QFrame()
         history_container.setFrameShape(QtWidgets.QFrame.StyledPanel)
+        history_container.setMinimumSize(QtCore.QSize(260, 185))
+        history_container.setMaximumHeight(245)
+        history_container.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred)
         history_layout = QtWidgets.QVBoxLayout(history_container)
         history_layout.setContentsMargins(4, 4, 4, 4)
         history_layout.setSpacing(2)
         history_layout.addWidget(self._history_plot, 1)
         lch_layout = QtWidgets.QHBoxLayout()
         lch_layout.setContentsMargins(0, 0, 0, 0)
+        lch_layout.setSpacing(4)
         lch_layout.addWidget(QtWidgets.QLabel('Lch'))
+        self._lch.setMinimumWidth(120)
         lch_layout.addWidget(self._lch)
         lch_layout.addStretch(1)
         history_layout.addLayout(lch_layout)
-        top_splitter.addWidget(_scroll_area(history_container, min_height=110))
-        top_splitter.setStretchFactor(0, 6)
-        top_splitter.setStretchFactor(1, 6)
-        top_splitter.setSizes([600, 600])
-        section_splitter.addWidget(top_splitter)
+        top_layout.addWidget(history_container, 1)
 
         component_widget = QtWidgets.QFrame()
         component_widget.setFrameShape(QtWidgets.QFrame.StyledPanel)
         component_layout = QtWidgets.QGridLayout(component_widget)
-        component_layout.setContentsMargins(4, 4, 4, 4)
-        component_layout.setHorizontalSpacing(6)
+        component_layout.setContentsMargins(6, 6, 6, 6)
+        component_layout.setHorizontalSpacing(4)
         component_layout.setVerticalSpacing(2)
-        component_layout.addWidget(QtWidgets.QLabel('Type (\u03C3 or \u03B5)'), 0, 0, 2, 1)
-        component_layout.addWidget(QtWidgets.QLabel('Reference value'), 2, 0)
+        component_widget.setMinimumSize(QtCore.QSize(245, 185))
+        component_widget.setMaximumWidth(330)
+        component_widget.setSizePolicy(QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Minimum)
+        component_layout.addWidget(QtWidgets.QLabel('<b>Reference Values</b>'), 0, 0, 1, 4)
+        component_layout.addWidget(QtWidgets.QLabel('Type'), 1, 0, 1, 2)
+        component_layout.addWidget(QtWidgets.QLabel('Reference'), 1, 2, 1, 2)
         self._strain_buttons = []
         self._stress_buttons = []
         self._value_widgets = []
@@ -525,18 +587,20 @@ class GeotechnicalTesterWidget(QtWidgets.QWidget):
             group.addButton(strain_button)
             group.addButton(stress_button)
             self._button_groups.append(group)
-            strain_button.setChecked(True)
-            value_widget = QtWidgets.QDoubleSpinBox()
+            strain_button.setEnabled(False)
+            stress_button.setChecked(True)
+            value_widget = _CompactDoubleSpinBox()
             value_widget.setDecimals(8)
             value_widget.setRange(-1.0e18, 1.0e18)
+            value_widget.setMinimumWidth(72)
+            value_widget.setValue(0.0)
             tested_label = QtWidgets.QLabel('(Tested)')
             tested_label.setAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter)
-            col = i + 1
-            component_layout.addWidget(strain_button, 0, col)
-            component_layout.addWidget(stress_button, 1, col)
-            component_layout.addWidget(value_widget, 2, col)
-            component_layout.addWidget(tested_label, 3, col)
-            component_layout.setColumnStretch(col, 1)
+            row = i + 2
+            component_layout.addWidget(strain_button, row, 0)
+            component_layout.addWidget(stress_button, row, 1)
+            component_layout.addWidget(value_widget, row, 2)
+            component_layout.addWidget(tested_label, row, 3)
             self._strain_buttons.append(strain_button)
             self._stress_buttons.append(stress_button)
             self._value_widgets.append(value_widget)
@@ -544,21 +608,29 @@ class GeotechnicalTesterWidget(QtWidgets.QWidget):
             strain_button.toggled.connect(self._update_components)
             stress_button.toggled.connect(self._update_components)
             value_widget.valueChanged.connect(self._update_components)
-        section_splitter.addWidget(_scroll_area(component_widget, min_height=80))
+        component_layout.setColumnStretch(2, 1)
 
         self._result_tabs = QtWidgets.QTabWidget()
         self._result_tabs.setStyleSheet('QTabWidget::pane { border: 1px solid #9f9f9f; }')
+        self._result_tabs.setMinimumSize(QtCore.QSize(360, 210))
+        self._result_tabs.setMaximumHeight(280)
+        self._result_tabs.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred)
         self._result_plots = []
         for i in range(STRAIN_SIZE):
-            plot = PlotWidget(STRAIN_COMPONENTS[i], STRESS_COMPONENTS[i])
-            plot.setMinimumHeight(120)
+            plot = PlotWidget(STRAIN_COMPONENTS[i], STRESS_COMPONENTS[i], preferred_height=190)
+            plot.setMinimumHeight(145)
             self._result_plots.append(plot)
             self._result_tabs.addTab(plot, '{}/{}'.format(STRAIN_COMPONENTS[i], STRESS_COMPONENTS[i]))
-        section_splitter.addWidget(_scroll_area(self._result_tabs, min_height=140))
-        section_splitter.setStretchFactor(0, 4)
-        section_splitter.setStretchFactor(1, 2)
-        section_splitter.setStretchFactor(2, 6)
-        section_splitter.setSizes([260, 120, 360])
+        result_container = QtWidgets.QWidget()
+        result_container.setMinimumHeight(210)
+        result_container.setMaximumHeight(310)
+        result_container.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred)
+        result_layout = QtWidgets.QHBoxLayout(result_container)
+        result_layout.setContentsMargins(0, 0, 0, 0)
+        result_layout.setSpacing(6)
+        result_layout.addWidget(component_widget, 3, QtCore.Qt.AlignTop)
+        result_layout.addWidget(self._result_tabs, 9)
+        main.addWidget(result_container, 2)
 
         bottom = QtWidgets.QGridLayout()
         bottom.setContentsMargins(0, 0, 0, 0)
@@ -675,9 +747,10 @@ class GeotechnicalTesterWidget(QtWidgets.QWidget):
         tested = self._tested_component.currentIndex()
         for i in range(STRAIN_SIZE):
             is_tested = i == tested
-            self._strain_buttons[i].setChecked(True if is_tested else self._strain_buttons[i].isChecked())
-            self._strain_buttons[i].setEnabled(not is_tested)
-            self._stress_buttons[i].setEnabled(not is_tested)
+            self._strain_buttons[i].setEnabled(False)
+            self._stress_buttons[i].setEnabled(True)
+            if not self._stress_buttons[i].isChecked():
+                self._stress_buttons[i].setChecked(True)
             self._value_widgets[i].setEnabled(not is_tested)
             self._tested_labels[i].setVisible(is_tested)
 

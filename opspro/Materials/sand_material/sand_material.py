@@ -1,3 +1,5 @@
+import math
+
 from opspro.Materials.material import Material
 from opspro.parameters.ParameterManager import ParameterManager
 from opspro.utils.fx_material_utils import fx_material_to_dict, fx_material_from_dict
@@ -149,14 +151,139 @@ class SandMaterial(Material):
         Write this SandMaterial as an OpenSees nDMaterial for the geotechnical
         tester and return the material tag used by the generated TCL.
 
-        The tester calls this hook when preparing its temporary OpenSees script.
-        The real SandMaterial TCL syntax is intentionally left for the material
-        writer implementation.
+        The tester uses a 3D continuum element, so this method writes standard
+        OpenSees 3D nDMaterial commands from the current SandMaterial fields.
         """
-        raise NotImplementedError(
-            'SandMaterial.write_tcl_for_tester is not implemented yet. '
-            'Provide the SandMaterial OpenSees TCL writer before running the tester.'
+        material_type = str(self.material_type)
+        tag = int(tag)
+
+        out_file.write('\n# SandMaterial tester material: {}\n'.format(material_type))
+        if material_type == 'Von-Mises':
+            self._write_j2_plasticity_tcl(out_file, tag)
+        elif material_type in ('Mohr-Coulomb', 'Drucker-Prager'):
+            self._write_drucker_prager_tcl(out_file, tag, material_type)
+        else:
+            raise ValueError('Unsupported SandMaterial type: {}'.format(material_type))
+        out_file.write('\n')
+        return tag
+
+    def _write_j2_plasticity_tcl(self, out_file, tag: int):
+        K = self._stress_magnitude(self.K)
+        G = self._stress_magnitude(self.G)
+        sig0 = self._stress_magnitude(self.sigma_y)
+        if sig0 <= 0.0:
+            sig0 = math.sqrt(3.0) * self._stress_magnitude(self.c)
+        sig0 = max(sig0, 1.0e-12)
+
+        sig_inf = sig0
+        delta = 0.0
+        H = 0.0
+        out_file.write(
+            'nDMaterial J2Plasticity {tag} {K} {G} {sig0} {sig_inf} {delta} {H}\n'.format(
+                tag=tag,
+                K=self._tcl_float(K),
+                G=self._tcl_float(G),
+                sig0=self._tcl_float(sig0),
+                sig_inf=self._tcl_float(sig_inf),
+                delta=self._tcl_float(delta),
+                H=self._tcl_float(H),
+            )
         )
+
+    def _write_drucker_prager_tcl(self, out_file, tag: int, material_type: str):
+        K = self._stress_magnitude(self.K)
+        G = self._stress_magnitude(self.G)
+        phi = self._angle_radians(self.phi)
+        c = self._stress_magnitude(self.c)
+        psi = self._angle_radians(self.psi)
+        density = self._density_magnitude(self.gamma_unsat)
+
+        if material_type == 'Mohr-Coulomb':
+            out_file.write(
+                '# Mohr-Coulomb parameters are mapped to DruckerPrager for this 3D tester.\n'
+            )
+
+        sigma_y, rho = self._drucker_prager_strength(phi, c)
+        rho_bar = min(rho, max(0.0, self._drucker_prager_flow_parameter(psi)))
+
+        # The current SandMaterial GUI exposes perfect-plastic strength only.
+        # Keep OpenSees hardening/tension-softening terms neutral.
+        Kinf = 0.0
+        Ko = 0.0
+        delta1 = 0.0
+        delta2 = 0.0
+        H = 0.0
+        theta = 0.0
+
+        out_file.write(
+            (
+                'nDMaterial DruckerPrager {tag} {K} {G} {sigma_y} {rho} {rho_bar} '
+                '{Kinf} {Ko} {delta1} {delta2} {H} {theta} {density}\n'
+            ).format(
+                tag=tag,
+                K=self._tcl_float(K),
+                G=self._tcl_float(G),
+                sigma_y=self._tcl_float(sigma_y),
+                rho=self._tcl_float(rho),
+                rho_bar=self._tcl_float(rho_bar),
+                Kinf=self._tcl_float(Kinf),
+                Ko=self._tcl_float(Ko),
+                delta1=self._tcl_float(delta1),
+                delta2=self._tcl_float(delta2),
+                H=self._tcl_float(H),
+                theta=self._tcl_float(theta),
+                density=self._tcl_float(density),
+            )
+        )
+
+    def _drucker_prager_strength(self, phi: float, c: float):
+        sin_phi = math.sin(phi)
+        cos_phi = math.cos(phi)
+        denom = self._drucker_prager_denominator(sin_phi)
+        rho = 2.0 * math.sqrt(2.0) * sin_phi / (math.sqrt(3.0) * denom)
+        sigma_y = 6.0 * c * cos_phi / (math.sqrt(2.0) * denom)
+        return max(sigma_y, 1.0e-12), max(rho, 0.0)
+
+    def _drucker_prager_flow_parameter(self, psi: float):
+        sin_psi = math.sin(psi)
+        denom = self._drucker_prager_denominator(sin_psi)
+        return 2.0 * math.sqrt(2.0) * sin_psi / (math.sqrt(3.0) * denom)
+
+    def _drucker_prager_denominator(self, sin_angle: float):
+        mode = str(getattr(self, 'calibration_mode', 'Inner match'))
+        if mode == 'Inner match':
+            denom = 3.0 + sin_angle
+        else:
+            denom = 3.0 - sin_angle
+        return max(denom, 1.0e-12)
+
+    @staticmethod
+    def _stress_magnitude(qty) -> float:
+        try:
+            return float(qty.to_base_units().magnitude)
+        except Exception:
+            return float(getattr(qty, 'magnitude', qty))
+
+    @staticmethod
+    def _density_magnitude(qty) -> float:
+        try:
+            return float(qty.to('kg/m^3').magnitude)
+        except Exception:
+            try:
+                return float(qty.to_base_units().magnitude)
+            except Exception:
+                return float(getattr(qty, 'magnitude', qty))
+
+    @staticmethod
+    def _angle_radians(qty) -> float:
+        try:
+            return float(qty.to('radian').magnitude)
+        except Exception:
+            return float(getattr(qty, 'magnitude', qty))
+
+    @staticmethod
+    def _tcl_float(value) -> str:
+        return '{:.16g}'.format(float(value))
 
     def __repr__(self):
         return (
