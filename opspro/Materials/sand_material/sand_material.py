@@ -24,6 +24,23 @@ class SandMaterial(Material):
     # Calibration modes for Drucker-Prager
     CALIBRATION_MODES = ['Inner match', 'Outer match', 'Plane-Strain']
 
+    INTEGRATION_METHODS = [
+        'Forward_Euler',
+        'Forward_Euler_Subincrement',
+        'Backward_Euler',
+        'Backward_Euler_LineSearch',
+        'Modified_Euler_Error_Control',
+        'Runge_Kutta_45_Error_Control',
+    ]
+    TANGENT_TYPES = [
+        'Elastic',
+        'Numerical_Algorithmic_FirstOrder',
+        'Numerical_Algorithmic_SecondOrder',
+        'Continuum',
+        'Secant',
+    ]
+    RETURN_TO_YIELD_SURFACE_OPTIONS = ['Disabled', 'Enabled']
+
     def __init__(self, id=1, name='SandMaterial'):
         super().__init__(id, name)
         ureg = ParameterManager._unit_registry
@@ -57,6 +74,16 @@ class SandMaterial(Material):
         self.E_ref = ParameterManager.to_internal_like(50e6 * ureg.Pa)          # Reference elasticity
         self.P_ref = ParameterManager.to_internal_like(100e3 * ureg.Pa)         # Reference pressure
         self.n_exp = 0.5 * ureg.dimensionless                                   # Exponent for elasticity law
+
+        # ---- ASDPlasticMaterial3D integration options ----
+        self.f_absolute_tol = 1.0e-4
+        self.stress_absolute_tol = 1.0e-2
+        self.n_max_iterations = 50
+        self.rk45_dT_min = 1.0e-3
+        self.rk45_niter_max = 120
+        self.return_to_yield_surface = 'Disabled'
+        self.integration_method = 'Backward_Euler'
+        self.tangent_type = 'Secant'
         
         # Visual material (FxMaterial or None)
         self.visual_material = None
@@ -105,6 +132,15 @@ class SandMaterial(Material):
             'E_ref': self._qty_to_dict(self.E_ref),
             'P_ref': self._qty_to_dict(self.P_ref),
             'n_exp': self._qty_to_dict(self.n_exp),
+            # integration options
+            'f_absolute_tol': float(self.f_absolute_tol),
+            'stress_absolute_tol': float(self.stress_absolute_tol),
+            'n_max_iterations': int(self.n_max_iterations),
+            'rk45_dT_min': float(self.rk45_dT_min),
+            'rk45_niter_max': int(self.rk45_niter_max),
+            'return_to_yield_surface': str(self.return_to_yield_surface),
+            'integration_method': str(self.integration_method),
+            'tangent_type': str(self.tangent_type),
             # visual material
             'visual_material': fx_material_to_dict(self.visual_material) if self.visual_material is not None else None,
             # tester
@@ -139,6 +175,25 @@ class SandMaterial(Material):
         self.E_ref = self._qty_from_dict(data.get('E_ref', None), self.E_ref)
         self.P_ref = self._qty_from_dict(data.get('P_ref', None), self.P_ref)
         self.n_exp = self._qty_from_dict(data.get('n_exp', None), self.n_exp)
+        # integration options
+        self.f_absolute_tol = self._float_from_dict(data.get('f_absolute_tol', None), self.f_absolute_tol)
+        self.stress_absolute_tol = self._float_from_dict(data.get('stress_absolute_tol', None), self.stress_absolute_tol)
+        self.n_max_iterations = self._int_from_dict(data.get('n_max_iterations', None), self.n_max_iterations)
+        self.rk45_dT_min = self._float_from_dict(data.get('rk45_dT_min', None), self.rk45_dT_min)
+        self.rk45_niter_max = self._int_from_dict(data.get('rk45_niter_max', None), self.rk45_niter_max)
+        self.return_to_yield_surface = self._normalize_return_to_yield_surface(
+            data.get('return_to_yield_surface', self.return_to_yield_surface)
+        )
+        self.integration_method = self._choice_from_dict(
+            data.get('integration_method', self.integration_method),
+            self.INTEGRATION_METHODS,
+            self.integration_method,
+        )
+        self.tangent_type = self._choice_from_dict(
+            data.get('tangent_type', self.tangent_type),
+            self.TANGENT_TYPES,
+            self.tangent_type,
+        )
         # visual material
         _vm = data.get('visual_material', None)
         self.visual_material = fx_material_from_dict(_vm) if _vm is not None else None
@@ -158,14 +213,131 @@ class SandMaterial(Material):
         tag = int(tag)
 
         out_file.write('\n# SandMaterial tester material: {}\n'.format(material_type))
-        if material_type == 'Von-Mises':
-            self._write_j2_plasticity_tcl(out_file, tag)
-        elif material_type in ('Mohr-Coulomb', 'Drucker-Prager'):
-            self._write_drucker_prager_tcl(out_file, tag, material_type)
-        else:
+        if material_type not in ('Mohr-Coulomb', 'Drucker-Prager', 'Von-Mises'):
             raise ValueError('Unsupported SandMaterial type: {}'.format(material_type))
+        self._write_asd_plastic_material_3d_tcl(out_file, tag, material_type)
         out_file.write('\n')
         return tag
+
+    def _write_asd_plastic_material_3d_tcl(self, out_file, tag: int, material_type: str):
+        config = self._asd_plastic_material_config(material_type)
+        lines = [
+            'nDMaterial ASDPlasticMaterial3D {}'.format(int(tag)),
+            '\t{}'.format(config['yield_function']),
+            '\t{}'.format(config['plastic_flow']),
+            '\t{}'.format(config['elasticity']),
+            '\t{}'.format(config['internal_variable_type']),
+            '\tBegin_Internal_Variables',
+        ]
+        lines.extend('\t\t{} {}'.format(name, values) for name, values in config['internal_variables'])
+        lines.append('\tEnd_Internal_Variables')
+        lines.append('\tBegin_Model_Parameters')
+        lines.extend(
+            '\t\t{} {}'.format(name, self._tcl_float(value))
+            for name, value in config['model_parameters']
+        )
+        lines.append('\tEnd_Model_Parameters')
+        lines.append('\tBegin_Integration_Options')
+        lines.extend(
+            '\t\t{} {}'.format(name, value)
+            for name, value in self._integration_option_tcl_items()
+        )
+        lines.append('\tEnd_Integration_Options')
+        self._write_tcl_continuation(out_file, lines)
+
+    def _asd_plastic_material_config(self, material_type: str):
+        E = self._stress_magnitude(self.E)
+        nu = self._dimensionless_magnitude(self.nu)
+        density = self._density_magnitude(self.gamma_unsat)
+        c = self._stress_magnitude(self.c)
+        phi = self._angle_radians(self.phi)
+        psi = self._angle_radians(self.psi)
+
+        common_parameters = [
+            ('MassDensity', density),
+            ('PoissonsRatio', nu),
+            ('YoungsModulus', E),
+        ]
+
+        if material_type == 'Mohr-Coulomb':
+            return {
+                'yield_function': 'MohrCoulomb_YF',
+                'plastic_flow': 'MohrCoulomb_PF',
+                'elasticity': 'LinearIsotropic3D_EL',
+                'internal_variable_type': 'BackStress(NullHardeningTensorFunction):',
+                'internal_variables': [
+                    ('BackStress', '0 0 0 0 0 0'),
+                ],
+                'model_parameters': [
+                    ('InitialP0', -1.0e-3),
+                    ('MC_c', c),
+                    ('MC_ds', 1.0e-8),
+                    ('MC_phi', self._angle_degrees(self.phi)),
+                    ('MC_psi', self._angle_degrees(self.psi)),
+                ] + common_parameters,
+            }
+
+        if material_type == 'Von-Mises':
+            radius = self._stress_magnitude(self.sigma_y)
+            if radius <= 0.0:
+                radius = math.sqrt(3.0) * c
+            return {
+                'yield_function': 'VonMises_YF',
+                'plastic_flow': 'VonMises_PF',
+                'elasticity': 'LinearIsotropic3D_EL',
+                'internal_variable_type': 'BackStress(TensorLinearHardeningFunction):VonMisesRadius(ScalarLinearHardeningFunction):',
+                'internal_variables': [
+                    ('BackStress', '0 0 0 0 0 0'),
+                    ('VonMisesRadius', self._tcl_float(max(radius, 1.0e-12))),
+                ],
+                'model_parameters': [
+                    ('InitialP0', 0.0),
+                    ('ScalarLinearHardeningParameter', 0.0),
+                    ('TensorLinearHardeningParameter', 0.0),
+                ] + common_parameters,
+            }
+
+        if material_type == 'Drucker-Prager':
+            eta, xi_c = self._drucker_prager_asd_eta_xi(phi, c)
+            etabar, _ = self._drucker_prager_asd_eta_xi(psi, 0.0)
+            return {
+                'yield_function': 'DruckerPrager_YF',
+                'plastic_flow': 'DruckerPrager_PF',
+                'elasticity': 'LinearIsotropic3D_EL',
+                'internal_variable_type': 'BackStress(TensorLinearHardeningFunction):DP_cohesion(ScalarLinearHardeningFunction):',
+                'internal_variables': [
+                    ('BackStress', '0 0 0 0 0 0'),
+                    ('DP_cohesion', '0'),
+                ],
+                'model_parameters': [
+                    ('DP_eta', eta),
+                    ('DP_etabar', etabar),
+                    ('DP_xi_c', xi_c),
+                    ('InitialP0', -1.0e-3),
+                    ('ScalarLinearHardeningParameter', 0.0),
+                    ('TensorLinearHardeningParameter', 0.0),
+                ] + common_parameters,
+            }
+
+        raise ValueError('Unsupported SandMaterial type: {}'.format(material_type))
+
+    def _integration_option_tcl_items(self):
+        return [
+            ('f_absolute_tol', self._tcl_float(self.f_absolute_tol)),
+            ('stress_absolute_tol', self._tcl_float(self.stress_absolute_tol)),
+            ('n_max_iterations', str(int(self.n_max_iterations))),
+            ('rk45_dT_min', self._tcl_float(self.rk45_dT_min)),
+            ('rk45_niter_max', str(int(self.rk45_niter_max))),
+            ('return_to_yield_surface', self._normalize_return_to_yield_surface(self.return_to_yield_surface)),
+            ('integration_method', self._choice_from_dict(self.integration_method, self.INTEGRATION_METHODS, 'Backward_Euler')),
+            ('tangent_type', self._choice_from_dict(self.tangent_type, self.TANGENT_TYPES, 'Secant')),
+        ]
+
+    @staticmethod
+    def _write_tcl_continuation(out_file, lines):
+        for i, line in enumerate(lines):
+            suffix = ' \\\n' if i < len(lines) - 1 else '\n'
+            out_file.write('{}{}'.format(line, suffix))
 
     def _write_j2_plasticity_tcl(self, out_file, tag: int):
         K = self._stress_magnitude(self.K)
@@ -257,6 +429,22 @@ class SandMaterial(Material):
             denom = 3.0 - sin_angle
         return max(denom, 1.0e-12)
 
+    def _drucker_prager_asd_eta_xi(self, angle: float, cohesion: float):
+        mode = str(getattr(self, 'calibration_mode', 'Inner match'))
+        if mode == 'Plane-Strain':
+            tan_angle = math.tan(angle)
+            denom = math.sqrt(9.0 + 12.0 * tan_angle * tan_angle)
+            return 3.0 * tan_angle / denom, 3.0 * cohesion / denom
+
+        sin_angle = math.sin(angle)
+        cos_angle = math.cos(angle)
+        if mode == 'Outer match':
+            denom = math.sqrt(3.0) * (3.0 - sin_angle)
+        else:
+            denom = math.sqrt(3.0) * (3.0 + sin_angle)
+        denom = max(denom, 1.0e-12)
+        return 6.0 * sin_angle / denom, 6.0 * cohesion * cos_angle / denom
+
     @staticmethod
     def _stress_magnitude(qty) -> float:
         try:
@@ -282,8 +470,52 @@ class SandMaterial(Material):
             return float(getattr(qty, 'magnitude', qty))
 
     @staticmethod
+    def _angle_degrees(qty) -> float:
+        try:
+            return float(qty.to('degree').magnitude)
+        except Exception:
+            return float(getattr(qty, 'magnitude', qty))
+
+    @staticmethod
+    def _dimensionless_magnitude(qty) -> float:
+        try:
+            return float(qty.to_base_units().magnitude)
+        except Exception:
+            return float(getattr(qty, 'magnitude', qty))
+
+    @staticmethod
     def _tcl_float(value) -> str:
         return '{:.16g}'.format(float(value))
+
+    @staticmethod
+    def _float_from_dict(value, fallback: float) -> float:
+        try:
+            return float(value)
+        except Exception:
+            return float(fallback)
+
+    @staticmethod
+    def _int_from_dict(value, fallback: int) -> int:
+        try:
+            return int(value)
+        except Exception:
+            return int(fallback)
+
+    @staticmethod
+    def _choice_from_dict(value, choices, fallback):
+        text = str(value)
+        return text if text in choices else fallback
+
+    @classmethod
+    def _normalize_return_to_yield_surface(cls, value):
+        if isinstance(value, bool):
+            return 'Enabled' if value else 'Disabled'
+        text = str(value).strip()
+        if text in cls.RETURN_TO_YIELD_SURFACE_OPTIONS:
+            return text
+        if text.lower() in ('1', 'true', 'yes', 'enabled', 'enable'):
+            return 'Enabled'
+        return 'Disabled'
 
     def __repr__(self):
         return (

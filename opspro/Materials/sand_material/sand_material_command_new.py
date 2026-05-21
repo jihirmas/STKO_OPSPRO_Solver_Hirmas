@@ -35,7 +35,15 @@ MCP_COMMAND_METADATA_START
                     "nonlinear_elasticity": {"type": "boolean", "description": "Enable pressure-dependent elasticity. Default: false"},
                     "E_ref":       {"type": "object", "description": "Reference elasticity as {magnitude, unit}. Default: 50 MPa. Active when nonlinear_elasticity=true"},
                     "P_ref":       {"type": "object", "description": "Reference pressure as {magnitude, unit}. Default: 100 kPa. Active when nonlinear_elasticity=true"},
-                    "n_exp":       {"type": "object", "description": "Elasticity exponent as {magnitude, unit}. Default: 0.5 (dimensionless). Active when nonlinear_elasticity=true"}
+                    "n_exp":       {"type": "object", "description": "Elasticity exponent as {magnitude, unit}. Default: 0.5 (dimensionless). Active when nonlinear_elasticity=true"},
+                    "f_absolute_tol": {"type": "number", "description": "ASDPlasticMaterial3D residual absolute tolerance. Default: 1.0e-4"},
+                    "stress_absolute_tol": {"type": "number", "description": "ASDPlasticMaterial3D stress absolute tolerance. Default: 1.0e-2"},
+                    "n_max_iterations": {"type": "integer", "description": "ASDPlasticMaterial3D maximum integration iterations. Default: 50"},
+                    "rk45_dT_min": {"type": "number", "description": "ASDPlasticMaterial3D minimum RK45 substep size. Default: 0.001"},
+                    "rk45_niter_max": {"type": "integer", "description": "ASDPlasticMaterial3D maximum RK45 substep iterations. Default: 120"},
+                    "return_to_yield_surface": {"type": "string", "description": "Return-to-yield-surface option: 'Disabled' or 'Enabled'. Default: 'Disabled'"},
+                    "integration_method": {"type": "string", "description": "Integration method: 'Forward_Euler', 'Forward_Euler_Subincrement', 'Backward_Euler', 'Backward_Euler_LineSearch', 'Modified_Euler_Error_Control', or 'Runge_Kutta_45_Error_Control'. Default: 'Backward_Euler'"},
+                    "tangent_type": {"type": "string", "description": "Tangent operator: 'Elastic', 'Numerical_Algorithmic_FirstOrder', 'Numerical_Algorithmic_SecondOrder', 'Continuum', or 'Secant'. Default: 'Secant'"}
                 }
             }
         }
