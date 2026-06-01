@@ -164,9 +164,9 @@ class ExpressionLineEdit(QLineEdit):
             model.appendRow(QStandardItem(w))
         self._completer.setModel(model)
 
-        # Make text transparent to avoid default painting (Active/Inactive only —
-        # Disabled is left at its system default so the disabled-state painter
-        # path in _paint_highlighted_text can read the real greyed-out colour).
+        # Make text transparent to avoid default painting (Active/Inactive only).
+        # Disabled is left at its system default and handled by QLineEdit's
+        # native disabled-state painting.
         palette = self.palette()
         palette.setColor(QPalette.Active,   QPalette.Text, QColor(0, 0, 0, 0))
         palette.setColor(QPalette.Inactive, QPalette.Text, QColor(0, 0, 0, 0))
@@ -403,6 +403,8 @@ class ExpressionLineEdit(QLineEdit):
 
     def paintEvent(self, event):
         super().paintEvent(event)
+        if not self.isEnabled():
+            return
         try:
             self._paint_highlighted_text()
         except Exception as e:

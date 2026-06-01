@@ -99,7 +99,7 @@ class SandMaterialDialog(QtWidgets.QDialog):
         _default_n_exp       = 0.5     * ureg.dimensionless
         _default_f_abs_tol   = 1.0e-4  * ureg.dimensionless
         _default_s_abs_tol   = 1.0e-2  * ureg.dimensionless
-        _default_rk45_dt_min = 1.0e-3  * ureg.dimensionless
+        _default_mc_ds       = 1.0e-8  * ureg.dimensionless
 
         # 3-column grid: label | input | description
         grid = QtWidgets.QGridLayout()
@@ -305,6 +305,16 @@ class SandMaterialDialog(QtWidgets.QDialog):
         grid.addWidget(_section_header('Strength parameters', level=2), row, 0, 1, 3)
         row += 1
 
+        self._lbl_vm_strength_source = _lbl('Von-Mises source:')
+        self._combo_vm_strength_source = QtWidgets.QComboBox()
+        self._combo_vm_strength_source.addItem('\u03c3_y', 'sigma_y')
+        self._combo_vm_strength_source.addItem('c', 'c')
+        self._desc_vm_strength_source = _desc('Strength parameter used by Von-Mises')
+        grid.addWidget(self._lbl_vm_strength_source, row, 0)
+        grid.addWidget(self._combo_vm_strength_source, row, 1)
+        grid.addWidget(self._desc_vm_strength_source, row, 2)
+        row += 1
+
         self._lbl_sigma_y = _lbl('\u03c3_y:')   # σ_y
         self._edit_sigma_y = ExpressionLineEdit(default_value=_default_sigma_y)
         self._desc_sigma_y = _desc('Yield stress (Von-Mises)')
@@ -376,67 +386,83 @@ class SandMaterialDialog(QtWidgets.QDialog):
 
         self._check_nonlinear.toggled.connect(self._on_nonlinear_toggled)
         self._edit_E_ref.textChanged.connect(self._on_E_ref_changed)
+        self._combo_vm_strength_source.currentIndexChanged.connect(self._update_von_mises_strength_controls)
         self._on_nonlinear_toggled(False)
-
-        # ---- Integration options section ----
-        grid.addWidget(_hline(), row, 0, 1, 3)
-        row += 1
-        grid.addWidget(_section_header('Integration options'), row, 0, 1, 3)
-        row += 1
-
-        self._edit_f_absolute_tol = ExpressionLineEdit(default_value=_default_f_abs_tol)
-        grid.addWidget(_lbl('f_absolute_tol:'), row, 0)
-        grid.addWidget(self._edit_f_absolute_tol, row, 1)
-        grid.addWidget(_desc('Residual absolute tolerance'), row, 2)
-        row += 1
-
-        self._edit_stress_absolute_tol = ExpressionLineEdit(default_value=_default_s_abs_tol)
-        grid.addWidget(_lbl('stress_absolute_tol:'), row, 0)
-        grid.addWidget(self._edit_stress_absolute_tol, row, 1)
-        grid.addWidget(_desc('Stress absolute tolerance'), row, 2)
-        row += 1
-
-        self._spin_n_max_iterations = _spinbox(1, 1000000, 50)
-        grid.addWidget(_lbl('n_max_iterations:'), row, 0)
-        grid.addWidget(self._spin_n_max_iterations, row, 1)
-        grid.addWidget(_desc('Maximum iterations for implicit integration'), row, 2)
-        row += 1
-
-        self._edit_rk45_dT_min = ExpressionLineEdit(default_value=_default_rk45_dt_min)
-        grid.addWidget(_lbl('rk45_dT_min:'), row, 0)
-        grid.addWidget(self._edit_rk45_dT_min, row, 1)
-        grid.addWidget(_desc('Minimum RK45 substep size'), row, 2)
-        row += 1
-
-        self._spin_rk45_niter_max = _spinbox(1, 1000000, 120)
-        grid.addWidget(_lbl('rk45_niter_max:'), row, 0)
-        grid.addWidget(self._spin_rk45_niter_max, row, 1)
-        grid.addWidget(_desc('Maximum RK45 substep iterations'), row, 2)
-        row += 1
-
-        self._combo_return_to_yield_surface = QtWidgets.QComboBox()
-        self._combo_return_to_yield_surface.addItems(SandMaterial.RETURN_TO_YIELD_SURFACE_OPTIONS)
-        grid.addWidget(_lbl('return_to_yield_surface:'), row, 0)
-        grid.addWidget(self._combo_return_to_yield_surface, row, 1)
-        grid.addWidget(_desc('Return to yield surface after integration'), row, 2)
-        row += 1
-
-        self._combo_integration_method = QtWidgets.QComboBox()
-        self._combo_integration_method.addItems(SandMaterial.INTEGRATION_METHODS)
-        grid.addWidget(_lbl('integration_method:'), row, 0)
-        grid.addWidget(self._combo_integration_method, row, 1)
-        grid.addWidget(_desc('Stress integration algorithm'), row, 2)
-        row += 1
-
-        self._combo_tangent_type = QtWidgets.QComboBox()
-        self._combo_tangent_type.addItems(SandMaterial.TANGENT_TYPES)
-        grid.addWidget(_lbl('tangent_type:'), row, 0)
-        grid.addWidget(self._combo_tangent_type, row, 1)
-        grid.addWidget(_desc('Tangent operator used by the material'), row, 2)
-        row += 1
 
         # ---- vertical spacer -----------------------------------------
         grid.setRowStretch(row, 1)
+
+        # ---- Integration options tab --------------------------------
+        integration_grid = QtWidgets.QGridLayout()
+        integration_grid.setSpacing(8)
+        integration_grid.setColumnMinimumWidth(0, 150)
+        integration_grid.setColumnStretch(1, 0)
+        integration_grid.setColumnStretch(2, 1)
+        irow = 0
+
+        integration_grid.addWidget(_section_header('Integration options'), irow, 0, 1, 3)
+        irow += 1
+
+        self._edit_f_absolute_tol = ExpressionLineEdit(default_value=_default_f_abs_tol)
+        self._lbl_f_absolute_tol = _lbl('f_absolute_tol:')
+        self._desc_f_absolute_tol = _desc('Residual absolute tolerance')
+        integration_grid.addWidget(self._lbl_f_absolute_tol, irow, 0)
+        integration_grid.addWidget(self._edit_f_absolute_tol, irow, 1)
+        integration_grid.addWidget(self._desc_f_absolute_tol, irow, 2)
+        irow += 1
+
+        self._edit_stress_absolute_tol = ExpressionLineEdit(default_value=_default_s_abs_tol)
+        self._lbl_stress_absolute_tol = _lbl('stress_absolute_tol:')
+        self._desc_stress_absolute_tol = _desc('Stress absolute tolerance')
+        integration_grid.addWidget(self._lbl_stress_absolute_tol, irow, 0)
+        integration_grid.addWidget(self._edit_stress_absolute_tol, irow, 1)
+        integration_grid.addWidget(self._desc_stress_absolute_tol, irow, 2)
+        irow += 1
+
+        self._spin_n_max_iterations = _spinbox(1, 1000000, 50)
+        self._lbl_n_max_iterations = _lbl('n_max_iterations:')
+        self._desc_n_max_iterations = _desc('Maximum iterations for implicit integration')
+        integration_grid.addWidget(self._lbl_n_max_iterations, irow, 0)
+        integration_grid.addWidget(self._spin_n_max_iterations, irow, 1)
+        integration_grid.addWidget(self._desc_n_max_iterations, irow, 2)
+        irow += 1
+
+        self._edit_mc_ds = ExpressionLineEdit(default_value=_default_mc_ds)
+        self._lbl_mc_ds = _lbl('MC_ds:')
+        self._desc_mc_ds = _desc('Numeric derivative step')
+        integration_grid.addWidget(self._lbl_mc_ds, irow, 0)
+        integration_grid.addWidget(self._edit_mc_ds, irow, 1)
+        integration_grid.addWidget(self._desc_mc_ds, irow, 2)
+        irow += 1
+
+        self._combo_return_to_yield_surface = QtWidgets.QComboBox()
+        self._combo_return_to_yield_surface.addItems(SandMaterial.RETURN_TO_YIELD_SURFACE_OPTIONS)
+        self._lbl_return_to_yield_surface = _lbl('return_to_yield_surface:')
+        self._desc_return_to_yield_surface = _desc('Return to yield surface after integration')
+        integration_grid.addWidget(self._lbl_return_to_yield_surface, irow, 0)
+        integration_grid.addWidget(self._combo_return_to_yield_surface, irow, 1)
+        integration_grid.addWidget(self._desc_return_to_yield_surface, irow, 2)
+        irow += 1
+
+        self._combo_integration_method = QtWidgets.QComboBox()
+        self._combo_integration_method.addItems(SandMaterial.INTEGRATION_METHODS)
+        self._lbl_integration_method = _lbl('integration_method:')
+        self._desc_integration_method = _desc('Stress integration algorithm')
+        integration_grid.addWidget(self._lbl_integration_method, irow, 0)
+        integration_grid.addWidget(self._combo_integration_method, irow, 1)
+        integration_grid.addWidget(self._desc_integration_method, irow, 2)
+        irow += 1
+
+        self._combo_tangent_type = QtWidgets.QComboBox()
+        self._combo_tangent_type.addItems(SandMaterial.TANGENT_TYPES)
+        self._lbl_tangent_type = _lbl('tangent_type:')
+        self._desc_tangent_type = _desc('Tangent operator used by the material')
+        integration_grid.addWidget(self._lbl_tangent_type, irow, 0)
+        integration_grid.addWidget(self._combo_tangent_type, irow, 1)
+        integration_grid.addWidget(self._desc_tangent_type, irow, 2)
+        irow += 1
+
+        integration_grid.setRowStretch(irow, 1)
 
         # ---- Button box ----------------------------------------------
         btn_box = QtWidgets.QDialogButtonBox(
@@ -446,12 +472,18 @@ class SandMaterialDialog(QtWidgets.QDialog):
         btn_box.accepted.connect(self._on_accepted)
         btn_box.rejected.connect(self.reject)
 
-        # ---- Main layout with scroll area ----------------------------
+        # ---- Main layout with scroll areas ---------------------------
         scroll = QtWidgets.QScrollArea()
         scroll.setWidgetResizable(True)
         scroll_content = QtWidgets.QWidget()
         scroll_content.setLayout(grid)
         scroll.setWidget(scroll_content)
+
+        self._integration_tab = QtWidgets.QScrollArea()
+        self._integration_tab.setWidgetResizable(True)
+        integration_content = QtWidgets.QWidget()
+        integration_content.setLayout(integration_grid)
+        self._integration_tab.setWidget(integration_content)
 
         self._edit_name = QtWidgets.QLineEdit()
         self._edit_name.setPlaceholderText('e.g. Dense Sand')
@@ -473,12 +505,15 @@ class SandMaterialDialog(QtWidgets.QDialog):
         header_layout.addWidget(self._btn_shader)
 
         tabs = QtWidgets.QTabWidget()
+        self._tabs = tabs
         tabs.addTab(scroll, 'Main Settings')
+        self._integration_tab_index = tabs.addTab(self._integration_tab, 'Integration Options')
         self._tester_tab = GeotechnicalTesterWidget(
             material=self._material,
             material_factory=self._make_material_for_tester,
         )
         tabs.addTab(self._tester_tab, 'Tester')
+        self._on_nonlinear_toggled(self._check_nonlinear.isChecked())
 
         main_layout = QtWidgets.QVBoxLayout(self)
         main_layout.addLayout(header_layout)
@@ -504,6 +539,9 @@ class SandMaterialDialog(QtWidgets.QDialog):
                 self._lbl_calibration.setVisible(False)
                 self._combo_calibration.setVisible(False)
                 self._desc_calibration.setVisible(False)
+                self._lbl_vm_strength_source.setVisible(False)
+                self._combo_vm_strength_source.setVisible(False)
+                self._desc_vm_strength_source.setVisible(False)
                 self._lbl_phi.setVisible(True)
                 self._edit_phi.setVisible(True)
                 self._desc_phi.setVisible(True)
@@ -521,6 +559,9 @@ class SandMaterialDialog(QtWidgets.QDialog):
                 self._lbl_calibration.setVisible(True)
                 self._combo_calibration.setVisible(True)
                 self._desc_calibration.setVisible(True)
+                self._lbl_vm_strength_source.setVisible(False)
+                self._combo_vm_strength_source.setVisible(False)
+                self._desc_vm_strength_source.setVisible(False)
                 self._lbl_phi.setVisible(True)
                 self._edit_phi.setVisible(True)
                 self._desc_phi.setVisible(True)
@@ -538,12 +579,15 @@ class SandMaterialDialog(QtWidgets.QDialog):
                 self._lbl_calibration.setVisible(False)
                 self._combo_calibration.setVisible(False)
                 self._desc_calibration.setVisible(False)
+                self._lbl_vm_strength_source.setVisible(True)
+                self._combo_vm_strength_source.setVisible(True)
+                self._desc_vm_strength_source.setVisible(True)
                 self._lbl_phi.setVisible(False)
                 self._edit_phi.setVisible(False)
                 self._desc_phi.setVisible(False)
-                self._lbl_c.setVisible(False)
-                self._edit_c.setVisible(False)
-                self._desc_c.setVisible(False)
+                self._lbl_c.setVisible(True)
+                self._edit_c.setVisible(True)
+                self._desc_c.setVisible(True)
                 self._lbl_psi.setVisible(False)
                 self._edit_psi.setVisible(False)
                 self._desc_psi.setVisible(False)
@@ -558,6 +602,49 @@ class SandMaterialDialog(QtWidgets.QDialog):
         
         # Ensure elasticity disabled states are updated
         self._update_elasticity_disabled_states()
+        self._update_von_mises_strength_controls()
+        self._update_mc_ds_visibility()
+
+    def _von_mises_strength_source(self):
+        data = self._combo_vm_strength_source.currentData()
+        if data in SandMaterial.VON_MISES_STRENGTH_SOURCES:
+            return data
+        text = self._combo_vm_strength_source.currentText()
+        return 'c' if text == 'c' else 'sigma_y'
+
+    def _set_von_mises_strength_source(self, source):
+        source = source if source in SandMaterial.VON_MISES_STRENGTH_SOURCES else 'sigma_y'
+        for i in range(self._combo_vm_strength_source.count()):
+            if self._combo_vm_strength_source.itemData(i) == source:
+                self._combo_vm_strength_source.setCurrentIndex(i)
+                return
+
+    def _update_von_mises_strength_controls(self, *args):
+        if not hasattr(self, '_combo_type'):
+            return
+        is_von_mises = self._combo_type.currentText() == 'Von-Mises'
+        source = self._von_mises_strength_source() if is_von_mises else None
+        c_enabled = (not is_von_mises) or source == 'c'
+        sigma_enabled = is_von_mises and source == 'sigma_y'
+        for w in (self._lbl_c, self._edit_c, self._desc_c):
+            w.setEnabled(c_enabled)
+        for w in (self._lbl_sigma_y, self._edit_sigma_y, self._desc_sigma_y):
+            w.setEnabled(sigma_enabled)
+
+    def _update_mc_ds_visibility(self):
+        if not hasattr(self, '_lbl_mc_ds'):
+            return
+        visible = self._combo_type.currentText() == 'Mohr-Coulomb'
+        for w in (self._lbl_mc_ds, self._edit_mc_ds, self._desc_mc_ds):
+            w.setVisible(visible)
+
+    def _set_integration_options_enabled(self, enabled: bool):
+        if hasattr(self, '_integration_tab'):
+            self._integration_tab.setEnabled(enabled)
+        if hasattr(self, '_tabs') and hasattr(self, '_integration_tab_index'):
+            self._tabs.setTabEnabled(self._integration_tab_index, enabled)
+            if not enabled and self._tabs.currentIndex() == self._integration_tab_index:
+                self._tabs.setCurrentIndex(0)
 
     # ------------------------------------------------------------------
     # Nonlinear elasticity toggle
@@ -582,6 +669,7 @@ class SandMaterialDialog(QtWidgets.QDialog):
         else:
             # When disabling nonlinear elasticity, restore E enabled state based on elasticity pair
             self._update_elasticity_disabled_states()
+        self._set_integration_options_enabled(enabled)
 
     # ------------------------------------------------------------------
     # E_ref synchronization
@@ -777,6 +865,7 @@ class SandMaterialDialog(QtWidgets.QDialog):
             self._edit_c.set_quantity(material.c)
             self._edit_psi.set_quantity(material.psi)
             self._edit_sigma_y.set_quantity(material.sigma_y)
+            self._set_von_mises_strength_source(getattr(material, 'von_mises_strength_source', 'sigma_y'))
             self._check_nonlinear.setChecked(bool(material.nonlinear_elasticity))
             self._edit_E_ref.set_quantity(material.E_ref)
             self._edit_P_ref.set_quantity(material.P_ref)
@@ -785,8 +874,7 @@ class SandMaterialDialog(QtWidgets.QDialog):
             self._edit_f_absolute_tol.set_quantity(float(material.f_absolute_tol) * ureg.dimensionless)
             self._edit_stress_absolute_tol.set_quantity(float(material.stress_absolute_tol) * ureg.dimensionless)
             self._spin_n_max_iterations.setValue(int(material.n_max_iterations))
-            self._edit_rk45_dT_min.set_quantity(float(material.rk45_dT_min) * ureg.dimensionless)
-            self._spin_rk45_niter_max.setValue(int(material.rk45_niter_max))
+            self._edit_mc_ds.set_quantity(float(getattr(material, 'mc_ds', 1.0e-8)) * ureg.dimensionless)
             self._combo_return_to_yield_surface.setCurrentText(
                 SandMaterial._normalize_return_to_yield_surface(material.return_to_yield_surface)
             )
@@ -914,6 +1002,7 @@ class SandMaterialDialog(QtWidgets.QDialog):
                 errors.append('n_init must be in (0, 1).')
 
         material_type = self._combo_type.currentText()
+        von_mises_strength_source = self._von_mises_strength_source()
 
         # ---- phi ----
         phi_val = self._edit_phi.value
@@ -932,11 +1021,16 @@ class SandMaterialDialog(QtWidgets.QDialog):
         # ---- c ----
         c_val = self._edit_c.value
         c_err = self._edit_c.error
-        if material_type in ('Mohr-Coulomb', 'Drucker-Prager'):
+        validate_c = material_type in ('Mohr-Coulomb', 'Drucker-Prager') or (
+            material_type == 'Von-Mises' and von_mises_strength_source == 'c'
+        )
+        if validate_c:
             if c_err:
                 errors.append(f'c: {c_err}')
             elif c_val.dimensionality != self._edit_c.expected_dimensionality:
                 errors.append('c must be a stress/pressure quantity (e.g. 10[kPa]).')
+            elif material_type == 'Von-Mises' and c_val.to_base_units().magnitude <= 0.0:
+                errors.append('c (cohesion) must be positive for Von-Mises when selected as strength source.')
             elif c_val.to_base_units().magnitude < 0.0:
                 errors.append('c (cohesion) must be \u2265 0.')
 
@@ -957,7 +1051,7 @@ class SandMaterialDialog(QtWidgets.QDialog):
         # ---- sigma_y ----
         sigma_y_val = self._edit_sigma_y.value
         sigma_y_err = self._edit_sigma_y.error
-        if material_type == 'Von-Mises':
+        if material_type == 'Von-Mises' and von_mises_strength_source == 'sigma_y':
             if sigma_y_err:
                 errors.append(f'\u03c3_y: {sigma_y_err}')
             elif sigma_y_val.dimensionality != self._edit_sigma_y.expected_dimensionality:
@@ -1005,23 +1099,34 @@ class SandMaterialDialog(QtWidgets.QDialog):
             n_exp_val = self._edit_n_exp.value
 
         # ---- Integration options ----
+        def _dimensionless_or_default(editor, default_value, positive=True):
+            if editor.error or editor.value.dimensionality:
+                return float(default_value)
+            result = float(editor.value.magnitude)
+            if positive and result <= 0.0:
+                return float(default_value)
+            return result
+
+        integration_errors = errors if nonlinear else []
         f_absolute_tol = self._dimensionless_float_from_editor(
             self._edit_f_absolute_tol,
             'f_absolute_tol',
-            errors,
-        )
+            integration_errors,
+        ) if nonlinear else _dimensionless_or_default(self._edit_f_absolute_tol, 1.0e-4)
         stress_absolute_tol = self._dimensionless_float_from_editor(
             self._edit_stress_absolute_tol,
             'stress_absolute_tol',
-            errors,
-        )
-        rk45_dT_min = self._dimensionless_float_from_editor(
-            self._edit_rk45_dT_min,
-            'rk45_dT_min',
-            errors,
-        )
+            integration_errors,
+        ) if nonlinear else _dimensionless_or_default(self._edit_stress_absolute_tol, 1.0e-2)
+        if nonlinear and material_type == 'Mohr-Coulomb':
+            mc_ds = self._dimensionless_float_from_editor(
+                self._edit_mc_ds,
+                'MC_ds',
+                errors,
+            )
+        else:
+            mc_ds = _dimensionless_or_default(self._edit_mc_ds, 1.0e-8)
         n_max_iterations = int(self._spin_n_max_iterations.value())
-        rk45_niter_max = int(self._spin_rk45_niter_max.value())
         return_to_yield_surface = self._combo_return_to_yield_surface.currentText()
         integration_method = self._combo_integration_method.currentText()
         tangent_type = self._combo_tangent_type.currentText()
@@ -1053,6 +1158,7 @@ class SandMaterialDialog(QtWidgets.QDialog):
             'c':                   c_val,
             'psi':                 psi_val,
             'sigma_y':             sigma_y_val,
+            'von_mises_strength_source': von_mises_strength_source,
             'nonlinear_elasticity':nonlinear,
             'E_ref':               E_ref_val,
             'P_ref':               P_ref_val,
@@ -1060,8 +1166,7 @@ class SandMaterialDialog(QtWidgets.QDialog):
             'f_absolute_tol':       f_absolute_tol,
             'stress_absolute_tol':  stress_absolute_tol,
             'n_max_iterations':     n_max_iterations,
-            'rk45_dT_min':          rk45_dT_min,
-            'rk45_niter_max':       rk45_niter_max,
+            'mc_ds':                mc_ds,
             'return_to_yield_surface': return_to_yield_surface,
             'integration_method':   integration_method,
             'tangent_type':         tangent_type,
@@ -1123,6 +1228,7 @@ class SandMaterialDialog(QtWidgets.QDialog):
         material.c                   = d['c']
         material.psi                 = d['psi']
         material.sigma_y             = d['sigma_y']
+        material.von_mises_strength_source = d['von_mises_strength_source']
         material.nonlinear_elasticity= d['nonlinear_elasticity']
         material.E_ref               = d['E_ref']
         material.P_ref               = d['P_ref']
@@ -1130,8 +1236,7 @@ class SandMaterialDialog(QtWidgets.QDialog):
         material.f_absolute_tol      = d['f_absolute_tol']
         material.stress_absolute_tol = d['stress_absolute_tol']
         material.n_max_iterations    = d['n_max_iterations']
-        material.rk45_dT_min         = d['rk45_dT_min']
-        material.rk45_niter_max      = d['rk45_niter_max']
+        material.mc_ds               = d['mc_ds']
         material.return_to_yield_surface = d['return_to_yield_surface']
         material.integration_method  = d['integration_method']
         material.tangent_type        = d['tangent_type']

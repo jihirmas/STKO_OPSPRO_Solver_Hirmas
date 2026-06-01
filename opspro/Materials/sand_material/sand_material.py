@@ -30,7 +30,6 @@ class SandMaterial(Material):
         'Backward_Euler',
         'Backward_Euler_LineSearch',
         'Modified_Euler_Error_Control',
-        'Runge_Kutta_45_Error_Control',
     ]
     TANGENT_TYPES = [
         'Elastic',
@@ -39,7 +38,10 @@ class SandMaterial(Material):
         'Continuum',
         'Secant',
     ]
-    RETURN_TO_YIELD_SURFACE_OPTIONS = ['Disabled', 'Enabled']
+    RETURN_TO_YIELD_SURFACE_OPTIONS = ['Disabled', 'One_Step_Return', 'Iterative_Return']
+    VON_MISES_STRENGTH_SOURCES = ['sigma_y', 'c']
+    DEFAULT_RK45_DT_MIN = 1.0e-3
+    DEFAULT_RK45_NITER_MAX = 120
 
     def __init__(self, id=1, name='SandMaterial'):
         super().__init__(id, name)
@@ -65,6 +67,7 @@ class SandMaterial(Material):
         
         # ---- Von-Mises specific parameters ----
         self.sigma_y = ParameterManager.to_internal_like(100e3 * ureg.Pa)       # Yield stress (Von-Mises)
+        self.von_mises_strength_source = 'sigma_y'                              # 'sigma_y' or 'c'
         
         # ---- Drucker-Prager calibration ----
         self.calibration_mode = 'Inner match'  # Default calibration mode
@@ -79,8 +82,7 @@ class SandMaterial(Material):
         self.f_absolute_tol = 1.0e-4
         self.stress_absolute_tol = 1.0e-2
         self.n_max_iterations = 50
-        self.rk45_dT_min = 1.0e-3
-        self.rk45_niter_max = 120
+        self.mc_ds = 1.0e-8                                                     # Mohr-Coulomb numerical derivative step
         self.return_to_yield_surface = 'Disabled'
         self.integration_method = 'Backward_Euler'
         self.tangent_type = 'Secant'
@@ -125,6 +127,7 @@ class SandMaterial(Material):
             'psi': self._qty_to_dict(self.psi),
             # Von-Mises specific
             'sigma_y': self._qty_to_dict(self.sigma_y),
+            'von_mises_strength_source': str(self.von_mises_strength_source),
             # Drucker-Prager calibration
             'calibration_mode': str(self.calibration_mode),
             # nonlinear elasticity
@@ -136,8 +139,7 @@ class SandMaterial(Material):
             'f_absolute_tol': float(self.f_absolute_tol),
             'stress_absolute_tol': float(self.stress_absolute_tol),
             'n_max_iterations': int(self.n_max_iterations),
-            'rk45_dT_min': float(self.rk45_dT_min),
-            'rk45_niter_max': int(self.rk45_niter_max),
+            'mc_ds': float(self.mc_ds),
             'return_to_yield_surface': str(self.return_to_yield_surface),
             'integration_method': str(self.integration_method),
             'tangent_type': str(self.tangent_type),
@@ -168,6 +170,11 @@ class SandMaterial(Material):
         self.psi = self._qty_from_dict(data.get('psi', None), self.psi)
         # Von-Mises specific
         self.sigma_y = self._qty_from_dict(data.get('sigma_y', None), self.sigma_y)
+        self.von_mises_strength_source = self._choice_from_dict(
+            data.get('von_mises_strength_source', self.von_mises_strength_source),
+            self.VON_MISES_STRENGTH_SOURCES,
+            self.von_mises_strength_source,
+        )
         # Drucker-Prager calibration
         self.calibration_mode = data.get('calibration_mode', self.calibration_mode)
         # nonlinear elasticity
@@ -179,8 +186,7 @@ class SandMaterial(Material):
         self.f_absolute_tol = self._float_from_dict(data.get('f_absolute_tol', None), self.f_absolute_tol)
         self.stress_absolute_tol = self._float_from_dict(data.get('stress_absolute_tol', None), self.stress_absolute_tol)
         self.n_max_iterations = self._int_from_dict(data.get('n_max_iterations', None), self.n_max_iterations)
-        self.rk45_dT_min = self._float_from_dict(data.get('rk45_dT_min', None), self.rk45_dT_min)
-        self.rk45_niter_max = self._int_from_dict(data.get('rk45_niter_max', None), self.rk45_niter_max)
+        self.mc_ds = self._float_from_dict(data.get('mc_ds', None), self.mc_ds)
         self.return_to_yield_surface = self._normalize_return_to_yield_surface(
             data.get('return_to_yield_surface', self.return_to_yield_surface)
         )
@@ -271,16 +277,24 @@ class SandMaterial(Material):
                 'model_parameters': [
                     ('InitialP0', -1.0e-3),
                     ('MC_c', c),
-                    ('MC_ds', 1.0e-8),
+                    ('MC_ds', self.mc_ds),
                     ('MC_phi', self._angle_degrees(self.phi)),
                     ('MC_psi', self._angle_degrees(self.psi)),
                 ] + common_parameters,
             }
 
         if material_type == 'Von-Mises':
-            radius = self._stress_magnitude(self.sigma_y)
-            if radius <= 0.0:
+            source = self._choice_from_dict(
+                self.von_mises_strength_source,
+                self.VON_MISES_STRENGTH_SOURCES,
+                'sigma_y',
+            )
+            if source == 'c':
                 radius = math.sqrt(3.0) * c
+            else:
+                radius = self._stress_magnitude(self.sigma_y)
+            if radius <= 0.0:
+                raise ValueError('Von-Mises strength source "{}" must be positive'.format(source))
             return {
                 'yield_function': 'VonMises_YF',
                 'plastic_flow': 'VonMises_PF',
@@ -292,9 +306,12 @@ class SandMaterial(Material):
                 ],
                 'model_parameters': [
                     ('InitialP0', 0.0),
+                    ('MassDensity', density),
+                    ('PoissonsRatio', nu),
                     ('ScalarLinearHardeningParameter', 0.0),
                     ('TensorLinearHardeningParameter', 0.0),
-                ] + common_parameters,
+                    ('YoungsModulus', E),
+                ],
             }
 
         if material_type == 'Drucker-Prager':
@@ -323,11 +340,11 @@ class SandMaterial(Material):
 
     def _integration_option_tcl_items(self):
         return [
-            ('f_absolute_tol', self._tcl_float(self.f_absolute_tol)),
-            ('stress_absolute_tol', self._tcl_float(self.stress_absolute_tol)),
+            ('f_absolute_tol', self._tcl_scientific(self.f_absolute_tol)),
+            ('stress_absolute_tol', self._tcl_scientific(self.stress_absolute_tol)),
             ('n_max_iterations', str(int(self.n_max_iterations))),
-            ('rk45_dT_min', self._tcl_float(self.rk45_dT_min)),
-            ('rk45_niter_max', str(int(self.rk45_niter_max))),
+            ('rk45_dT_min', self._tcl_float(self.DEFAULT_RK45_DT_MIN)),
+            ('rk45_niter_max', str(int(self.DEFAULT_RK45_NITER_MAX))),
             ('return_to_yield_surface', self._normalize_return_to_yield_surface(self.return_to_yield_surface)),
             ('integration_method', self._choice_from_dict(self.integration_method, self.INTEGRATION_METHODS, 'Backward_Euler')),
             ('tangent_type', self._choice_from_dict(self.tangent_type, self.TANGENT_TYPES, 'Secant')),
@@ -486,6 +503,10 @@ class SandMaterial(Material):
     @staticmethod
     def _tcl_float(value) -> str:
         return '{:.16g}'.format(float(value))
+
+    @staticmethod
+    def _tcl_scientific(value) -> str:
+        return '{:.6e}'.format(float(value))
 
     @staticmethod
     def _float_from_dict(value, fallback: float) -> float:

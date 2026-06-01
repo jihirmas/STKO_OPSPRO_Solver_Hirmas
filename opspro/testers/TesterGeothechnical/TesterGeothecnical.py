@@ -1,6 +1,7 @@
 from io import StringIO
 import os
 import traceback
+import uuid
 
 from PySide2 import QtCore, QtWidgets
 
@@ -308,11 +309,12 @@ class GeotechnicalTestRunner(QtCore.QObject):
     error = QtCore.Signal(str)
     finished = QtCore.Signal()
 
-    def __init__(self, material, lch, components, time_history, strain_history, parent=None):
+    def __init__(self, material, lch, tested_component, initial_stress, time_history, strain_history, parent=None):
         super().__init__(parent)
         self.material = material
         self.lch = lch
-        self.components = components
+        self.tested_component = int(tested_component)
+        self.initial_stress = list(initial_stress)
         self.time_history = list(time_history)
         self.strain_history = list(strain_history)
         self.strain = []
@@ -320,11 +322,18 @@ class GeotechnicalTestRunner(QtCore.QObject):
 
     @QtCore.Slot()
     def run(self):
+        script_file = None
+        output_file = None
+        solver_error = ''
         try:
             command, temp_dir, script_file, output_file = self._prepare_test()
             rel_script = os.path.relpath(script_file, temp_dir)
             self.logLine.emit('Running OpenSees: {}'.format(command))
             for line in tu.execute_async([command, rel_script], temp_dir):
+                if line.startswith('__ERR__'):
+                    solver_error = line[7:].strip()
+                    self.logLine.emit(solver_error)
+                    continue
                 parsed = tu.parse_result_line(line, STRAIN_SIZE)
                 if parsed is None:
                     self.logLine.emit(line)
@@ -333,15 +342,20 @@ class GeotechnicalTestRunner(QtCore.QObject):
                 self.strain.append(strain)
                 self.stress.append(stress)
                 self.resultReady.emit(percentage, strain, stress)
+            if not self.strain:
+                raise RuntimeError(solver_error or 'OpenSees finished without result data')
+        except Exception:
+            if solver_error:
+                self.error.emit('OpenSees failed: {}'.format(solver_error))
+            else:
+                self.error.emit(traceback.format_exc())
+        finally:
             for path in (script_file, output_file):
                 try:
-                    if os.path.exists(path):
+                    if path and os.path.exists(path):
                         os.remove(path)
                 except Exception:
                     pass
-        except Exception:
-            self.error.emit(traceback.format_exc())
-        finally:
             self.finished.emit()
 
     def _prepare_test(self):
@@ -362,8 +376,9 @@ class GeotechnicalTestRunner(QtCore.QObject):
         temp_dir = '{}{}TesterGeotechnical'.format(MpcStandardPaths.getStandardPathDataLocation(), os.sep)
         temp_dir = temp_dir.replace('\\', '/')
         os.makedirs(temp_dir, exist_ok=True)
-        script_file = tu.normalize_path(os.path.join(temp_dir, 'script.tcl'))
-        output_file = tu.normalize_path(os.path.join(temp_dir, 'output.txt'))
+        token = uuid.uuid4().hex
+        script_file = tu.normalize_path(os.path.join(temp_dir, 'script_{}.tcl'.format(token)))
+        output_file = tu.normalize_path(os.path.join(temp_dir, 'output_{}.txt'.format(token)))
         template_file = os.path.join(os.path.dirname(__file__), 'template_geotechnical_drained.tcl')
 
         with open(template_file, 'r', encoding='utf-8') as file:
@@ -371,13 +386,22 @@ class GeotechnicalTestRunner(QtCore.QObject):
 
         material_buffer, material_tag = self._write_materials_for_tester(PyMpc, temp_dir)
 
+        initial_stress = list(self.initial_stress[:STRAIN_SIZE])
+        while len(initial_stress) < STRAIN_SIZE:
+            initial_stress.append(0.0)
+
+        tested_component = max(0, min(STRAIN_SIZE - 1, int(self.tested_component)))
         flags1 = []
         flags2 = []
         imps = []
-        for component in self.components:
-            flags1.append(str(component.control))
-            flags2.append(str(component.type))
-            imps.append(str(component.value))
+        for i, value in enumerate(initial_stress):
+            if i == tested_component:
+                flags1.append(str(tu.TensorComponentData.STRAIN))
+                flags2.append(str(tu.TensorComponentData.TESTED))
+            else:
+                flags1.append(str(tu.TensorComponentData.STRESS))
+                flags2.append(str(tu.TensorComponentData.FIXED))
+            imps.append(str(float(value)))
 
         script = (
             template.replace('__materials__', material_buffer.getvalue())
@@ -570,45 +594,22 @@ class GeotechnicalTesterWidget(QtWidgets.QWidget):
         component_widget.setMinimumSize(QtCore.QSize(245, 185))
         component_widget.setMaximumWidth(330)
         component_widget.setSizePolicy(QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Minimum)
-        component_layout.addWidget(QtWidgets.QLabel('<b>Reference Values</b>'), 0, 0, 1, 4)
-        component_layout.addWidget(QtWidgets.QLabel('Type'), 1, 0, 1, 2)
-        component_layout.addWidget(QtWidgets.QLabel('Reference'), 1, 2, 1, 2)
-        self._strain_buttons = []
-        self._stress_buttons = []
+        component_layout.addWidget(QtWidgets.QLabel('<b>Initial Stress</b>'), 0, 0, 1, 2)
         self._value_widgets = []
-        self._tested_labels = []
-        self._button_groups = []
         for i in range(STRAIN_SIZE):
-            strain_button = QtWidgets.QRadioButton()
-            strain_button.setText(STRAIN_COMPONENTS[i])
-            stress_button = QtWidgets.QRadioButton()
-            stress_button.setText(STRESS_COMPONENTS[i])
-            group = QtWidgets.QButtonGroup(self)
-            group.addButton(strain_button)
-            group.addButton(stress_button)
-            self._button_groups.append(group)
-            strain_button.setEnabled(False)
-            stress_button.setChecked(True)
+            component_label = QtWidgets.QLabel(STRESS_COMPONENTS[i])
+            component_label.setAlignment(QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter)
             value_widget = _CompactDoubleSpinBox()
             value_widget.setDecimals(8)
             value_widget.setRange(-1.0e18, 1.0e18)
-            value_widget.setMinimumWidth(72)
+            value_widget.setMinimumWidth(110)
             value_widget.setValue(0.0)
-            tested_label = QtWidgets.QLabel('(Tested)')
-            tested_label.setAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter)
-            row = i + 2
-            component_layout.addWidget(strain_button, row, 0)
-            component_layout.addWidget(stress_button, row, 1)
-            component_layout.addWidget(value_widget, row, 2)
-            component_layout.addWidget(tested_label, row, 3)
-            self._strain_buttons.append(strain_button)
-            self._stress_buttons.append(stress_button)
+            row = i + 1
+            component_layout.addWidget(component_label, row, 0)
+            component_layout.addWidget(value_widget, row, 1)
             self._value_widgets.append(value_widget)
-            self._tested_labels.append(tested_label)
-            strain_button.toggled.connect(self._update_components)
-            stress_button.toggled.connect(self._update_components)
             value_widget.valueChanged.connect(self._update_components)
-        component_layout.setColumnStretch(2, 1)
+        component_layout.setColumnStretch(1, 1)
 
         self._result_tabs = QtWidgets.QTabWidget()
         self._result_tabs.setStyleSheet('QTabWidget::pane { border: 1px solid #9f9f9f; }')
@@ -744,29 +745,11 @@ class GeotechnicalTesterWidget(QtWidgets.QWidget):
 
     @QtCore.Slot()
     def _update_components(self):
-        tested = self._tested_component.currentIndex()
-        for i in range(STRAIN_SIZE):
-            is_tested = i == tested
-            self._strain_buttons[i].setEnabled(False)
-            self._stress_buttons[i].setEnabled(True)
-            if not self._stress_buttons[i].isChecked():
-                self._stress_buttons[i].setChecked(True)
-            self._value_widgets[i].setEnabled(not is_tested)
-            self._tested_labels[i].setVisible(is_tested)
+        for widget in self._value_widgets:
+            widget.setEnabled(True)
 
-    def _component_data(self):
-        tested = self._tested_component.currentIndex()
-        data = []
-        for i in range(STRAIN_SIZE):
-            component = tu.TensorComponentData()
-            if self._stress_buttons[i].isChecked():
-                component.control = tu.TensorComponentData.STRESS
-            if i == tested:
-                component.control = tu.TensorComponentData.STRAIN
-                component.type = tu.TensorComponentData.TESTED
-            component.value = self._value_widgets[i].value()
-            data.append(component)
-        return data
+    def _initial_stress_values(self):
+        return [widget.value() for widget in self._value_widgets]
 
     def state(self):
         return {
@@ -778,8 +761,8 @@ class GeotechnicalTesterWidget(QtWidgets.QWidget):
             'scale_negative': self._scale_neg.value(),
             'tested_component': self._tested_component.currentIndex(),
             'lch': self._lch.value(),
-            'components_strain_control': [button.isChecked() for button in self._strain_buttons],
-            'components_values': [widget.value() for widget in self._value_widgets],
+            'initial_stress': self._initial_stress_values(),
+            'components_values': self._initial_stress_values(),
             'reference_strain': [list(values) for values in self._reference_strain],
             'reference_stress': [list(values) for values in self._reference_stress],
         }
@@ -798,12 +781,7 @@ class GeotechnicalTesterWidget(QtWidgets.QWidget):
         self._tested_component.setCurrentIndex(int(state.get('tested_component', state.get('tested_comp', 0))))
         self._lch.setValue(float(state.get('lch', self._lch.value())))
 
-        controls = state.get('components_strain_control', state.get('components_types', None))
-        if controls:
-            for value, strain_button, stress_button in zip(controls, self._strain_buttons, self._stress_buttons):
-                strain_button.setChecked(bool(value))
-                stress_button.setChecked(not bool(value))
-        values = state.get('components_values', None)
+        values = state.get('initial_stress', state.get('components_values', None))
         if values:
             for value, widget in zip(values, self._value_widgets):
                 widget.setValue(float(value))
@@ -845,7 +823,8 @@ class GeotechnicalTesterWidget(QtWidgets.QWidget):
         self._runner = GeotechnicalTestRunner(
             material,
             self._lch.value(),
-            self._component_data(),
+            self._tested_component.currentIndex(),
+            self._initial_stress_values(),
             self._time_history,
             self._strain_history,
         )
