@@ -5,6 +5,7 @@ from typing import List, Tuple, Dict
 from PyMpc import MpcPluginCaeComponentAssignmentFlags
 from opspro.assets.cae_components_uids import CAEComponentGroupUIDs
 import opspro.Hinges
+import opspro.GeotechnicalElementGenerators
 import opspro.Materials
 import opspro.Sections
 import opspro.Settings
@@ -157,6 +158,51 @@ class CAEComponentGroups:
             preferredComponentCommand = opspro.Hinges.BeamHingeCommandEdit.COMMAND_NAME,
             assignCommand = opspro.Hinges.BeamHingeCommandAssign.COMMAND_NAME,
             unassignCommand = opspro.Hinges.BeamHingeCommandUnassign.COMMAND_NAME,
+        ),
+
+        CAEComponentGroupItem(
+            id = CAEComponentGroupUIDs.GEOTECHNICAL_ELEMENT_GENERATORS,
+            displayName = "Geotechnical Element Generators",
+            description = "Composite geotechnical element generators expanded during export",
+            icon = "assets/images/material_soil.ico",
+            classIconMap = {
+                'SpringFoundationGenerator':   'assets/images/material_soil.ico',
+                'EmbeddedFoundationGenerator': 'assets/images/material_soil.ico',
+            },
+            assignmentFlags = MpcPluginCaeComponentAssignmentFlags.All,
+            collectionCommands = [
+                (
+                    'Add Spring Foundation...',
+                    opspro.GeotechnicalElementGenerators.SpringFoundationCommandNew.COMMAND_NAME,
+                ),
+                (
+                    'Add Embedded Foundation...',
+                    opspro.GeotechnicalElementGenerators.EmbeddedFoundationCommandNew.COMMAND_NAME,
+                ),
+            ],
+            componentCommands = [
+                (
+                    'Edit',
+                    opspro.GeotechnicalElementGenerators.GeotechnicalElementGeneratorCommandEdit.COMMAND_NAME,
+                ),
+                (
+                    'Assign to...',
+                    opspro.GeotechnicalElementGenerators.GeotechnicalElementGeneratorCommandAssign.COMMAND_NAME,
+                ),
+                (
+                    'Unassign from...',
+                    opspro.GeotechnicalElementGenerators.GeotechnicalElementGeneratorCommandUnassign.COMMAND_NAME,
+                ),
+                (
+                    'List assignments',
+                    opspro.GeotechnicalElementGenerators.GeotechnicalElementGeneratorCommandListAssignments.COMMAND_NAME,
+                ),
+            ],
+            preferredComponentCommand = (
+                opspro.GeotechnicalElementGenerators.GeotechnicalElementGeneratorCommandEdit.COMMAND_NAME
+            ),
+            assignCommand = opspro.GeotechnicalElementGenerators.GeotechnicalElementGeneratorCommandAssign.COMMAND_NAME,
+            unassignCommand = opspro.GeotechnicalElementGenerators.GeotechnicalElementGeneratorCommandUnassign.COMMAND_NAME,
         ),
 
         CAEComponentGroupItem(

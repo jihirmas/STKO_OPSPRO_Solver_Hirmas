@@ -311,6 +311,8 @@ def write_tcl_int(out_dir):
 		else:
 			write_element.write_geom(doc, pinfo)
 			write_element.write_inter(doc, pinfo)
+		from opspro.GeotechnicalElementGenerators import write_geotechnical_element_generators
+		write_geotechnical_element_generators(doc, pinfo)
 	element_file.close()
 	pinfo.elem = None
 	pinfo.phys_prop = None

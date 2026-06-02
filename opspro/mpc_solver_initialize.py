@@ -121,6 +121,13 @@ def _register_plugin_commands():
 	App.registerCommand(opspro.Hinges.BeamHingeCommandClone())
 	App.registerCommand(opspro.Hinges.BeamHingeCommandAssign())
 	App.registerCommand(opspro.Hinges.BeamHingeCommandUnassign())
+	import opspro.GeotechnicalElementGenerators
+	App.registerCommand(opspro.GeotechnicalElementGenerators.SpringFoundationCommandNew())
+	App.registerCommand(opspro.GeotechnicalElementGenerators.EmbeddedFoundationCommandNew())
+	App.registerCommand(opspro.GeotechnicalElementGenerators.GeotechnicalElementGeneratorCommandEdit())
+	App.registerCommand(opspro.GeotechnicalElementGenerators.GeotechnicalElementGeneratorCommandAssign())
+	App.registerCommand(opspro.GeotechnicalElementGenerators.GeotechnicalElementGeneratorCommandUnassign())
+	App.registerCommand(opspro.GeotechnicalElementGenerators.GeotechnicalElementGeneratorCommandListAssignments())
 
 def _update_command_categories():
 	# This is an example of how to update command categories.
@@ -218,6 +225,26 @@ def _register_actions():
 			),
 		],
 		'Beam Hinges'
+	)
+	import opspro.GeotechnicalElementGenerators
+	App.addCommandAction(
+		MpcContext.PreProcessor,
+		'Properties',
+		[
+			(
+				'Spring Foundation',
+				opspro.GeotechnicalElementGenerators.SpringFoundationCommandNew.COMMAND_NAME,
+				pkgutil.get_data('opspro', 'assets/images/material_soil_add.ico'),
+				True
+			),
+			(
+				'Embedded Foundation',
+				opspro.GeotechnicalElementGenerators.EmbeddedFoundationCommandNew.COMMAND_NAME,
+				pkgutil.get_data('opspro', 'assets/images/material_soil_add.ico'),
+				True
+			),
+		],
+		'Geotechnical Element Generators'
 	)
 	import opspro.utils
 	App.addCommandAction(
