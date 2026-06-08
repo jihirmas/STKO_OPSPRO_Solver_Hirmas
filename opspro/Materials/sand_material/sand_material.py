@@ -356,29 +356,6 @@ class SandMaterial(Material):
             suffix = ' \\\n' if i < len(lines) - 1 else '\n'
             out_file.write('{}{}'.format(line, suffix))
 
-    def _write_j2_plasticity_tcl(self, out_file, tag: int):
-        K = self._stress_magnitude(self.K)
-        G = self._stress_magnitude(self.G)
-        sig0 = self._stress_magnitude(self.sigma_y)
-        if sig0 <= 0.0:
-            sig0 = math.sqrt(3.0) * self._stress_magnitude(self.c)
-        sig0 = max(sig0, 1.0e-12)
-
-        sig_inf = sig0
-        delta = 0.0
-        H = 0.0
-        out_file.write(
-            'nDMaterial J2Plasticity {tag} {K} {G} {sig0} {sig_inf} {delta} {H}\n'.format(
-                tag=tag,
-                K=self._tcl_float(K),
-                G=self._tcl_float(G),
-                sig0=self._tcl_float(sig0),
-                sig_inf=self._tcl_float(sig_inf),
-                delta=self._tcl_float(delta),
-                H=self._tcl_float(H),
-            )
-        )
-
     def _write_drucker_prager_tcl(self, out_file, tag: int, material_type: str):
         K = self._stress_magnitude(self.K)
         G = self._stress_magnitude(self.G)
